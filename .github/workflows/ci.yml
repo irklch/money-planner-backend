@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: money
+          POSTGRES_PASSWORD: money
+          POSTGRES_DB: money
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U money" --health-interval 2s --health-retries 30
+    env:
+      ENV: test
+      DATABASE_URL: postgresql+asyncpg://money:money@localhost:5432/money_test
+      ADMIN_DATABASE_URL: postgresql+asyncpg://money:money@localhost:5432/money
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install --upgrade "pip>=25.1" && pip install . --group dev
+      - run: ruff check . && ruff format --check .
+      - run: pytest -q
+      - name: Migrations match models
+        run: python -m alembic check
+      - name: OpenAPI contract is up to date
+        run: |
+          python -c "import json; from app.main import app; print(json.dumps(app.openapi(), ensure_ascii=False, indent=2))" > /tmp/openapi.json
+          diff -q openapi.json /tmp/openapi.json
+
+  image:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Login to Yandex Container Registry
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        run: echo '${{ secrets.YC_SA_JSON_KEY }}' | docker login --username json_key --password-stdin cr.yandex
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: runtime
+          push: ${{ github.ref == 'refs/heads/main' && github.event_name == 'push' }}
+          tags: |
+            cr.yandex/${{ vars.YC_REGISTRY_ID }}/money-planner-api:${{ github.sha }}
+            cr.yandex/${{ vars.YC_REGISTRY_ID }}/money-planner-api:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

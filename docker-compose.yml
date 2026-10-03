@@ -1,0 +1,34 @@
+# Локальная разработка и тесты. Прод — deploy/ (Yandex Cloud).
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: money
+      POSTGRES_PASSWORD: money
+      POSTGRES_DB: money
+    ports: ["5432:5432"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U money"]
+      interval: 2s
+      retries: 30
+    tmpfs: ["/var/lib/postgresql/data"]
+
+  api:
+    build: { context: ., target: runtime }
+    environment:
+      ENV: dev
+      DATABASE_URL: postgresql+asyncpg://money:money@db:5432/money
+    ports: ["8000:8000"]
+    depends_on: { db: { condition: service_healthy } }
+    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --no-access-log"
+    read_only: true
+    tmpfs: ["/tmp"]
+
+  tests:
+    build: { context: ., target: test }
+    environment:
+      ENV: test
+      DATABASE_URL: postgresql+asyncpg://money:money@db:5432/money_test
+      ADMIN_DATABASE_URL: postgresql+asyncpg://money:money@db:5432/money
+    depends_on: { db: { condition: service_healthy } }
+    volumes: ["./:/srv"]

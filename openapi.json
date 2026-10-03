@@ -1,0 +1,2040 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Money Planner API",
+    "description": "Контракт для iOS и будущего Android-клиента. Даты — YYYY-MM-DD, суммы — decimal-строки с 2 знаками (RUB). Все запросы, кроме /auth/*, — с Authorization: Bearer <accessToken>. Ошибки — единый формат { error: { code, message, status, retryable, requestId, details } }.",
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/v1/auth/anonymous": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Create Anonymous",
+        "operationId": "create_anonymous_v1_auth_anonymous_post",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AnonymousRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthSession"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/auth/refresh": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Refresh",
+        "operationId": "refresh_v1_auth_refresh_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RefreshRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthSession"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/me": {
+      "delete": {
+        "tags": [
+          "account"
+        ],
+        "summary": "Delete Me",
+        "description": "Удаляет guest и всё, что ему принадлежит (каскад по FK): expenses, свои категории\n(включая архивные), free_days, expense_imports, refresh_tokens. Системные категории не трогаются.\nПовтор после успеха → 401 user_deleted (iOS считает это успехом).",
+        "operationId": "delete_me_v1_me_delete",
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          }
+        }
+      }
+    },
+    "/v1/categories": {
+      "get": {
+        "tags": [
+          "categories"
+        ],
+        "summary": "List Categories",
+        "operationId": "list_categories_v1_categories_get",
+        "parameters": [
+          {
+            "name": "includeArchived",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Includearchived"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CategoryList"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "categories"
+        ],
+        "summary": "Create Category",
+        "operationId": "create_category_v1_categories_post",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CategoryCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CategoryOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/categories/{category_id}": {
+      "patch": {
+        "tags": [
+          "categories"
+        ],
+        "summary": "Update Category",
+        "operationId": "update_category_v1_categories__category_id__patch",
+        "parameters": [
+          {
+            "name": "category_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Category Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CategoryUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CategoryOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "categories"
+        ],
+        "summary": "Archive Category",
+        "operationId": "archive_category_v1_categories__category_id__delete",
+        "parameters": [
+          {
+            "name": "category_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Category Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CategoryOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/imports/parse": {
+      "post": {
+        "tags": [
+          "imports"
+        ],
+        "summary": "Parse Statement",
+        "operationId": "parse_statement_v1_imports_parse_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary"
+                  }
+                },
+                "type": "object",
+                "required": [
+                  "file"
+                ]
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ParseResult"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/expenses": {
+      "get": {
+        "tags": [
+          "expenses"
+        ],
+        "summary": "List Expenses",
+        "operationId": "list_expenses_v1_expenses_get",
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "From"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "To"
+            }
+          },
+          {
+            "name": "categoryId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Categoryid"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExpensePage"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "expenses"
+        ],
+        "summary": "Create Expense",
+        "operationId": "create_expense_v1_expenses_post",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExpenseCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExpenseOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/expenses/{expense_id}": {
+      "patch": {
+        "tags": [
+          "expenses"
+        ],
+        "summary": "Update Expense",
+        "operationId": "update_expense_v1_expenses__expense_id__patch",
+        "parameters": [
+          {
+            "name": "expense_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Expense Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExpenseUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExpenseOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "expenses"
+        ],
+        "summary": "Delete Expense",
+        "operationId": "delete_expense_v1_expenses__expense_id__delete",
+        "parameters": [
+          {
+            "name": "expense_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Expense Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/expenses/import": {
+      "post": {
+        "tags": [
+          "expenses"
+        ],
+        "summary": "Import Expenses",
+        "operationId": "import_expenses_v1_expenses_import_post",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImportRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/calendar/days": {
+      "get": {
+        "tags": [
+          "calendar"
+        ],
+        "summary": "Get Days",
+        "operationId": "get_days_v1_calendar_days_get",
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "From"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "To"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CalendarDays"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/calendar/acknowledgements/{day}": {
+      "put": {
+        "tags": [
+          "calendar"
+        ],
+        "summary": "Acknowledge",
+        "operationId": "acknowledge_v1_calendar_acknowledgements__day__put",
+        "parameters": [
+          {
+            "name": "day",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Day"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CalendarDay"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "calendar"
+        ],
+        "summary": "Unacknowledge",
+        "operationId": "unacknowledge_v1_calendar_acknowledgements__day__delete",
+        "parameters": [
+          {
+            "name": "day",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Day"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CalendarDay"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/analytics/summary": {
+      "get": {
+        "tags": [
+          "analytics"
+        ],
+        "summary": "Get Summary",
+        "operationId": "get_summary_v1_analytics_summary_get",
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "From"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "To"
+            }
+          },
+          {
+            "name": "compareFrom",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Comparefrom"
+            }
+          },
+          {
+            "name": "compareTo",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Compareto"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SummaryOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/analytics/dynamics": {
+      "get": {
+        "tags": [
+          "analytics"
+        ],
+        "summary": "Get Dynamics",
+        "operationId": "get_dynamics_v1_analytics_dynamics_get",
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "From"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "To"
+            }
+          },
+          {
+            "name": "categoryId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Categoryid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DynamicsOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/insights": {
+      "get": {
+        "tags": [
+          "insights"
+        ],
+        "summary": "Get Insights",
+        "operationId": "get_insights_v1_insights_get",
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "From"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "To"
+            }
+          },
+          {
+            "name": "compareFrom",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Comparefrom"
+            }
+          },
+          {
+            "name": "compareTo",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Compareto"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InsightsOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AnonymousRequest": {
+        "properties": {
+          "platform": {
+            "type": "string",
+            "enum": [
+              "ios",
+              "android"
+            ],
+            "title": "Platform"
+          },
+          "appVersion": {
+            "type": "string",
+            "maxLength": 32,
+            "minLength": 1,
+            "title": "Appversion"
+          }
+        },
+        "type": "object",
+        "required": [
+          "platform",
+          "appVersion"
+        ],
+        "title": "AnonymousRequest"
+      },
+      "AuthSession": {
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Userid"
+          },
+          "isAnonymous": {
+            "type": "boolean",
+            "title": "Isanonymous"
+          },
+          "accessToken": {
+            "type": "string",
+            "title": "Accesstoken"
+          },
+          "accessTokenExpiresAt": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Accesstokenexpiresat"
+          },
+          "refreshToken": {
+            "type": "string",
+            "title": "Refreshtoken"
+          },
+          "refreshTokenExpiresAt": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Refreshtokenexpiresat"
+          }
+        },
+        "type": "object",
+        "required": [
+          "userId",
+          "isAnonymous",
+          "accessToken",
+          "accessTokenExpiresAt",
+          "refreshToken",
+          "refreshTokenExpiresAt"
+        ],
+        "title": "AuthSession"
+      },
+      "AveragesOut": {
+        "properties": {
+          "accountedDays": {
+            "type": "integer",
+            "title": "Accounteddays"
+          },
+          "perDay": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^-?\\d+\\.\\d{2}$",
+                "example": "1250.00"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Perday"
+          },
+          "weekday": {
+            "$ref": "#/components/schemas/BucketOut"
+          },
+          "weekend": {
+            "$ref": "#/components/schemas/BucketOut"
+          }
+        },
+        "type": "object",
+        "required": [
+          "accountedDays",
+          "perDay",
+          "weekday",
+          "weekend"
+        ],
+        "title": "AveragesOut"
+      },
+      "BankOut": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "name"
+        ],
+        "title": "BankOut"
+      },
+      "BucketOut": {
+        "properties": {
+          "accountedDays": {
+            "type": "integer",
+            "title": "Accounteddays"
+          },
+          "perDay": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^-?\\d+\\.\\d{2}$",
+                "example": "1250.00"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Perday"
+          }
+        },
+        "type": "object",
+        "required": [
+          "accountedDays",
+          "perDay"
+        ],
+        "title": "BucketOut"
+      },
+      "CalendarDay": {
+        "properties": {
+          "date": {
+            "type": "string",
+            "format": "date",
+            "title": "Date"
+          },
+          "expenseCount": {
+            "type": "integer",
+            "title": "Expensecount"
+          },
+          "isAcknowledgedEmpty": {
+            "type": "boolean",
+            "title": "Isacknowledgedempty"
+          },
+          "isAccounted": {
+            "type": "boolean",
+            "title": "Isaccounted"
+          }
+        },
+        "type": "object",
+        "required": [
+          "date",
+          "expenseCount",
+          "isAcknowledgedEmpty",
+          "isAccounted"
+        ],
+        "title": "CalendarDay"
+      },
+      "CalendarDays": {
+        "properties": {
+          "days": {
+            "items": {
+              "$ref": "#/components/schemas/CalendarDay"
+            },
+            "type": "array",
+            "title": "Days"
+          }
+        },
+        "type": "object",
+        "required": [
+          "days"
+        ],
+        "title": "CalendarDays"
+      },
+      "CategoryCreate": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "emoji": {
+            "type": "string",
+            "title": "Emoji"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "emoji"
+        ],
+        "title": "CategoryCreate"
+      },
+      "CategoryList": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/CategoryOut"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "title": "CategoryList"
+      },
+      "CategoryOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "emoji": {
+            "type": "string",
+            "title": "Emoji"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "system",
+              "custom"
+            ],
+            "title": "Kind"
+          },
+          "colorIndex": {
+            "type": "integer",
+            "title": "Colorindex"
+          },
+          "sortOrder": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sortorder"
+          },
+          "archivedAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Archivedat"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Createdat"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updatedat"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "emoji",
+          "kind",
+          "colorIndex",
+          "sortOrder",
+          "archivedAt",
+          "createdAt",
+          "updatedAt"
+        ],
+        "title": "CategoryOut"
+      },
+      "CategorySummaryOut": {
+        "properties": {
+          "categoryId": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Categoryid"
+          },
+          "total": {
+            "type": "string",
+            "pattern": "^-?\\d+\\.\\d{2}$",
+            "title": "Total",
+            "example": "1250.00"
+          },
+          "share": {
+            "type": "number",
+            "title": "Share"
+          },
+          "expenseCount": {
+            "type": "integer",
+            "title": "Expensecount"
+          },
+          "averageExpense": {
+            "type": "string",
+            "pattern": "^-?\\d+\\.\\d{2}$",
+            "title": "Averageexpense",
+            "example": "1250.00"
+          },
+          "delta": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^-?\\d+\\.\\d{2}$",
+                "example": "1250.00"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Delta"
+          },
+          "deltaPercent": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deltapercent"
+          }
+        },
+        "type": "object",
+        "required": [
+          "categoryId",
+          "total",
+          "share",
+          "expenseCount",
+          "averageExpense",
+          "delta",
+          "deltaPercent"
+        ],
+        "title": "CategorySummaryOut"
+      },
+      "CategoryUpdate": {
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "emoji": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Emoji"
+          }
+        },
+        "type": "object",
+        "title": "CategoryUpdate"
+      },
+      "DataRangeOut": {
+        "properties": {
+          "firstDate": {
+            "type": "string",
+            "format": "date",
+            "title": "Firstdate"
+          },
+          "lastDate": {
+            "type": "string",
+            "format": "date",
+            "title": "Lastdate"
+          }
+        },
+        "type": "object",
+        "required": [
+          "firstDate",
+          "lastDate"
+        ],
+        "title": "DataRangeOut"
+      },
+      "DynamicsOut": {
+        "properties": {
+          "points": {
+            "items": {
+              "$ref": "#/components/schemas/PointOut"
+            },
+            "type": "array",
+            "title": "Points"
+          },
+          "averages": {
+            "$ref": "#/components/schemas/AveragesOut"
+          }
+        },
+        "type": "object",
+        "required": [
+          "points",
+          "averages"
+        ],
+        "title": "DynamicsOut"
+      },
+      "ExpenseCreate": {
+        "properties": {
+          "date": {
+            "type": "string",
+            "format": "date",
+            "title": "Date",
+            "example": "2026-09-18"
+          },
+          "amount": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,2})?$",
+            "title": "Amount",
+            "example": "1250.00"
+          },
+          "categoryId": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Categoryid"
+          },
+          "comment": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Comment"
+          }
+        },
+        "type": "object",
+        "required": [
+          "date",
+          "amount",
+          "categoryId"
+        ],
+        "title": "ExpenseCreate"
+      },
+      "ExpenseOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "date": {
+            "type": "string",
+            "format": "date",
+            "title": "Date"
+          },
+          "amount": {
+            "type": "string",
+            "pattern": "^-?\\d+\\.\\d{2}$",
+            "title": "Amount",
+            "example": "1250.00"
+          },
+          "categoryId": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Categoryid"
+          },
+          "comment": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Comment"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "manual",
+              "import"
+            ],
+            "title": "Source"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Createdat"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updatedat"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "date",
+          "amount",
+          "categoryId",
+          "comment",
+          "source",
+          "createdAt",
+          "updatedAt"
+        ],
+        "title": "ExpenseOut"
+      },
+      "ExpensePage": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ExpenseOut"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "nextCursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nextcursor"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "nextCursor"
+        ],
+        "title": "ExpensePage"
+      },
+      "ExpenseUpdate": {
+        "properties": {
+          "date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date",
+                "example": "2026-09-18"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Date"
+          },
+          "amount": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d{1,2})?$",
+                "example": "1250.00"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Amount"
+          },
+          "categoryId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Categoryid"
+          },
+          "comment": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Comment"
+          }
+        },
+        "type": "object",
+        "title": "ExpenseUpdate"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "ImportResult": {
+        "properties": {
+          "importedCount": {
+            "type": "integer",
+            "title": "Importedcount"
+          },
+          "dateFrom": {
+            "type": "string",
+            "format": "date",
+            "title": "Datefrom"
+          },
+          "dateTo": {
+            "type": "string",
+            "format": "date",
+            "title": "Dateto"
+          }
+        },
+        "type": "object",
+        "required": [
+          "importedCount",
+          "dateFrom",
+          "dateTo"
+        ],
+        "title": "ImportResult"
+      },
+      "InsightOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "detail": {
+            "type": "string",
+            "title": "Detail"
+          },
+          "target": {
+            "$ref": "#/components/schemas/InsightTarget"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "detail",
+          "target"
+        ],
+        "title": "InsightOut"
+      },
+      "InsightTarget": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "category",
+              "period"
+            ],
+            "title": "Type"
+          },
+          "categoryId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Categoryid"
+          }
+        },
+        "type": "object",
+        "required": [
+          "type"
+        ],
+        "title": "InsightTarget"
+      },
+      "InsightsOut": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/InsightOut"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "title": "InsightsOut"
+      },
+      "ParseResult": {
+        "properties": {
+          "bank": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BankOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "period": {
+            "$ref": "#/components/schemas/PeriodOut"
+          },
+          "operations": {
+            "items": {
+              "$ref": "#/components/schemas/ParsedOperation"
+            },
+            "type": "array",
+            "title": "Operations"
+          },
+          "skippedIncomeCount": {
+            "type": "integer",
+            "title": "Skippedincomecount"
+          },
+          "warnings": {
+            "items": {
+              "$ref": "#/components/schemas/PartiallyReadWarning"
+            },
+            "type": "array",
+            "title": "Warnings"
+          }
+        },
+        "type": "object",
+        "required": [
+          "bank",
+          "period",
+          "operations",
+          "skippedIncomeCount",
+          "warnings"
+        ],
+        "title": "ParseResult"
+      },
+      "ParsedOperation": {
+        "properties": {
+          "date": {
+            "type": "string",
+            "format": "date",
+            "title": "Date"
+          },
+          "amount": {
+            "type": "string",
+            "pattern": "^-?\\d+\\.\\d{2}$",
+            "title": "Amount",
+            "example": "1250.00"
+          },
+          "comment": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Comment"
+          },
+          "categoryId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Categoryid"
+          },
+          "categoryStatus": {
+            "type": "string",
+            "enum": [
+              "assigned",
+              "suggested",
+              "unassigned"
+            ],
+            "title": "Categorystatus"
+          }
+        },
+        "type": "object",
+        "required": [
+          "date",
+          "amount",
+          "comment",
+          "categoryId",
+          "categoryStatus"
+        ],
+        "title": "ParsedOperation"
+      },
+      "PartiallyReadWarning": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "const": "partially_read",
+            "title": "Code",
+            "default": "partially_read"
+          },
+          "unreadDates": {
+            "items": {
+              "type": "string",
+              "format": "date"
+            },
+            "type": "array",
+            "title": "Unreaddates"
+          },
+          "unreadRowCount": {
+            "type": "integer",
+            "title": "Unreadrowcount"
+          }
+        },
+        "type": "object",
+        "required": [
+          "unreadDates",
+          "unreadRowCount"
+        ],
+        "title": "PartiallyReadWarning"
+      },
+      "PeriodOut": {
+        "properties": {
+          "from": {
+            "type": "string",
+            "format": "date",
+            "title": "From"
+          },
+          "to": {
+            "type": "string",
+            "format": "date",
+            "title": "To"
+          }
+        },
+        "type": "object",
+        "required": [
+          "from",
+          "to"
+        ],
+        "title": "PeriodOut"
+      },
+      "PointOut": {
+        "properties": {
+          "date": {
+            "type": "string",
+            "format": "date",
+            "title": "Date"
+          },
+          "total": {
+            "type": "string",
+            "pattern": "^-?\\d+\\.\\d{2}$",
+            "title": "Total",
+            "example": "1250.00"
+          }
+        },
+        "type": "object",
+        "required": [
+          "date",
+          "total"
+        ],
+        "title": "PointOut"
+      },
+      "PreviousOut": {
+        "properties": {
+          "total": {
+            "type": "string",
+            "pattern": "^-?\\d+\\.\\d{2}$",
+            "title": "Total",
+            "example": "1250.00"
+          }
+        },
+        "type": "object",
+        "required": [
+          "total"
+        ],
+        "title": "PreviousOut"
+      },
+      "RefreshRequest": {
+        "properties": {
+          "refreshToken": {
+            "type": "string",
+            "maxLength": 256,
+            "minLength": 16,
+            "title": "Refreshtoken"
+          }
+        },
+        "type": "object",
+        "required": [
+          "refreshToken"
+        ],
+        "title": "RefreshRequest"
+      },
+      "SummaryOut": {
+        "properties": {
+          "total": {
+            "type": "string",
+            "pattern": "^-?\\d+\\.\\d{2}$",
+            "title": "Total",
+            "example": "1250.00"
+          },
+          "previous": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PreviousOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "categories": {
+            "items": {
+              "$ref": "#/components/schemas/CategorySummaryOut"
+            },
+            "type": "array",
+            "title": "Categories"
+          },
+          "dataRange": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DataRangeOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "total",
+          "previous",
+          "categories",
+          "dataRange"
+        ],
+        "title": "SummaryOut"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      }
+    }
+  }
+}

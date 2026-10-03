@@ -1,0 +1,65 @@
+# Container Optimized Image (Compute Cloud VM, 2 vCPU / 4 ГБ).
+# Передаётся VM через metadata: docker-compose=@deploy/docker-compose.prod.yml
+# Секреты НЕ здесь: приложение читает их из Lockbox по LOCKBOX_SECRET_ID через SA VM.
+version: "3.7"
+
+x-app: &app
+  image: cr.yandex/${YC_REGISTRY_ID}/money-planner-api:${IMAGE_TAG}
+  environment:
+    ENV: prod
+    LOG_LEVEL: INFO
+    LOCKBOX_SECRET_ID: ${LOCKBOX_SECRET_ID}
+    DB_SSL_ROOT_CERT: /certs/root.crt
+    AI_ENABLED: "true"
+    AI_USE_METADATA_IAM: "true"
+    AI_FOLDER_ID: ${YC_FOLDER_ID}
+    AI_MODEL_CATEGORIZE: gpt://${YC_FOLDER_ID}/yandexgpt-lite/latest
+    AI_MODEL_INSIGHTS: gpt://${YC_FOLDER_ID}/yandexgpt/latest
+  volumes:
+    - /etc/money-planner/certs:/certs:ro
+  read_only: true            # выписки физически некуда записать на диск
+  logging:
+    driver: fluentd
+    options:
+      fluentd-address: localhost:24224
+      tag: money-planner
+
+services:
+  fluentbit:
+    # Пересылка логов контейнеров в Cloud Logging (log group с retention 14 дней).
+    image: cr.yandex/yc/fluent-bit-plugin-yandex:v2.1.1-fluent-bit-2.1.7
+    ports: ["24224:24224"]
+    environment:
+      YC_GROUP_ID: ${YC_LOG_GROUP_ID}
+    restart: always
+
+  migrate:
+    <<: *app
+    command: ["python", "-m", "alembic", "upgrade", "head"]
+    restart: "no"
+
+  api:
+    <<: *app
+    restart: always
+    depends_on: [migrate, fluentbit]
+    expose: ["8000"]
+
+  maintenance:
+    # Удаление guest после 12 мес неактивности — раз в сутки, без отдельной очереди задач.
+    <<: *app
+    command: ["sh", "-c", "while true; do python -m app.jobs.purge_inactive_users; sleep 86400; done"]
+    restart: always
+
+  caddy:
+    image: caddy:2
+    restart: always
+    ports: ["80:80", "443:443"]
+    environment:
+      API_DOMAIN: ${API_DOMAIN}
+    volumes:
+      - /etc/money-planner/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+    depends_on: [api]
+
+volumes:
+  caddy_data: {}
