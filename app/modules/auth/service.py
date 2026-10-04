@@ -67,7 +67,17 @@ async def create_anonymous(
     existing = await session.scalar(select(RefreshToken).where(RefreshToken.token_hash == token_hash))
     if existing is not None:
         window = timedelta(hours=settings.anonymous_idempotency_window_hours)
-        if existing.rotated_at or existing.revoked_at or existing.created_at < utcnow() - window:
+        # Отдаём токен повторно, только пока он остаётся единственным действующим токеном сессии:
+        # не ротирован (клиент им ещё не пользовался), не отозван, не истёк и окно 24 ч не прошло.
+        # Иначе — 409 без токена: уже использованный или отозванный токен не возвращается никогда.
+        now = utcnow()
+        if (
+            existing.rotated_at is not None
+            or existing.revoked_at is not None
+            or existing.expires_at <= now
+            or existing.created_at < now - window
+        ):
+            await session.rollback()
             raise ApiError("idempotency_key_reused")
         await session.commit()
         return _session(settings, existing.user_id, token, existing), True

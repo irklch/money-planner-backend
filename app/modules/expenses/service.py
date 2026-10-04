@@ -1,4 +1,6 @@
 import base64
+import hashlib
+import hmac
 import json
 import uuid
 from datetime import date, datetime
@@ -6,8 +8,8 @@ from datetime import date, datetime
 from sqlalchemy import and_, delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.dates import latest_allowed_date
 from app.core.errors import ApiError, ErrorDetail, validation_error
+from app.core.schemas import format_money
 from app.core.security import utcnow
 from app.db.models import Expense, ExpenseImport, ExpenseSource
 from app.modules.calendar.service import clear_free_days, lock_days
@@ -75,14 +77,14 @@ async def list_expenses(
 # ---------- Запись ----------
 
 
-def _check_date(d: date, index: int | None = None) -> ErrorDetail | None:
-    if d > latest_allowed_date():
+def _check_date(d: date, today: date, index: int | None = None) -> ErrorDetail | None:
+    if d > today:
         return ErrorDetail(code="date_in_future", field="date", index=index)
     return None
 
 
 async def create_expense(
-    session: AsyncSession, user_id: uuid.UUID, key: uuid.UUID, body: ExpenseCreate
+    session: AsyncSession, user_id: uuid.UUID, key: uuid.UUID, body: ExpenseCreate, today: date
 ) -> tuple[Expense, bool]:
     """Idempotency-Key = id нового Expense: повтор с тем же ключом не создаёт дубль."""
     existing = await session.get(Expense, key)
@@ -92,7 +94,7 @@ async def create_expense(
         return existing, True
 
     errors = []
-    if (err := _check_date(body.date)) is not None:
+    if (err := _check_date(body.date, today)) is not None:
         errors.append(err)
     resolver = await CategoryResolver.load(session, user_id, {body.category_id})
     if (code := resolver.check(body.category_id)) is not None:
@@ -138,7 +140,11 @@ async def _get_owned(
 
 
 async def update_expense(
-    session: AsyncSession, user_id: uuid.UUID, expense_id: uuid.UUID, body: ExpenseUpdate
+    session: AsyncSession,
+    user_id: uuid.UUID,
+    expense_id: uuid.UUID,
+    body: ExpenseUpdate,
+    today: date | None,
 ) -> Expense:
     e = await _get_owned(session, user_id, expense_id, lock=True)
     fields = body.model_fields_set
@@ -146,7 +152,11 @@ async def update_expense(
     if "date" in fields:
         if body.date is None:
             errors.append(ErrorDetail(code="date_invalid", field="date"))
-        elif (err := _check_date(body.date)) is not None:
+        elif today is None:
+            raise ApiError(
+                "invalid_request", details=[ErrorDetail(code="timezone_required", field="X-Timezone")]
+            )
+        elif (err := _check_date(body.date, today)) is not None:
             errors.append(err)
     if "amount" in fields and body.amount is None:
         errors.append(ErrorDetail(code="amount_invalid", field="amount"))
@@ -193,36 +203,73 @@ def _import_lock_key(key: uuid.UUID) -> int:
     return int.from_bytes(key.bytes[:8], "big", signed=True)
 
 
-def _result(body: ImportRequest) -> ImportResult:
-    dates = [x.date for x in body.expenses]
-    return ImportResult(imported_count=len(body.expenses), date_from=min(dates), date_to=max(dates))
+def import_request_hash(body: ImportRequest) -> bytes:
+    """SHA-256 нормализованного валидированного тела POST /expenses/import.
+
+    Считается не по сырым байтам, а по уже провалидированной модели, поэтому не зависит
+    от порядка JSON-ключей, пробелов и форматирования. Нормализация:
+    - date — YYYY-MM-DD;
+    - amount — decimal-строка ровно с 2 знаками («100», «100.0», «100.00» → «100.00»);
+    - categoryId — UUID в каноническом виде (нижний регистр, с дефисами);
+    - comment — после trim, пустой или отсутствующий → null;
+    - порядок операций сохраняется: это часть тела.
+    Префикс версии позволяет изменить нормализацию в будущем, не путая старые отпечатки.
+    """
+    canonical = [
+        {
+            "amount": format_money(x.amount),
+            "categoryId": str(x.category_id),
+            "comment": x.comment,
+            "date": x.date.isoformat(),
+        }
+        for x in body.expenses
+    ]
+    raw = json.dumps(canonical, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(b"expense-import/v1\n" + raw.encode("utf-8")).digest()
+
+
+def _stored_result(record: ExpenseImport) -> ImportResult:
+    return ImportResult(
+        imported_count=record.imported_count, date_from=record.date_from, date_to=record.date_to
+    )
 
 
 async def import_expenses(
-    session: AsyncSession, user_id: uuid.UUID, key: uuid.UUID, body: ImportRequest
+    session: AsyncSession, user_id: uuid.UUID, key: uuid.UUID, body: ImportRequest, today: date
 ) -> tuple[ImportResult, bool]:
     """Атомарное сохранение финального импорта (03 — Import Flow).
 
-    Одна транзакция: expense_imports + все expenses + снятие «Бесплатных дней» с дат импорта.
-    Повтор с тем же ключом → «уже сохранено» (Idempotent-Replayed), расходы второй раз не пишутся.
-    Ответ повтора строится из тела запроса: по контракту клиент повторяет то же тело.
+    Одна транзакция: expense_imports (ключ, отпечаток тела, результат) + все expenses +
+    снятие «Бесплатных дней» с дат импорта. Всё или ничего.
+
+    Повтор с тем же ключом:
+    - то же тело → сохранённый результат первоначального сохранения (Idempotent-Replayed),
+      расходы не создаются; последующие правки и удаления расходов на ответ не влияют;
+    - другое тело или чужой ключ → 409 idempotency_key_reused;
+    - первый запрос ещё выполняется → 409 idempotency_in_progress + Retry-After.
+    Проверка повтора идёт до валидации: если категорию архивировали после успешного
+    сохранения, повтор всё равно вернёт сохранённый результат.
     """
+    request_hash = import_request_hash(body)
     got_lock = await session.scalar(select(func.pg_try_advisory_xact_lock(_import_lock_key(key))))
     if not got_lock:
         await session.rollback()
         raise ApiError("idempotency_in_progress", retry_after=2)
 
-    owner = await session.scalar(select(ExpenseImport.user_id).where(ExpenseImport.id == key))
-    if owner is not None:
+    existing = await session.get(ExpenseImport, key)
+    if existing is not None:
+        same_owner = existing.user_id == user_id
+        same_body = hmac.compare_digest(existing.request_hash, request_hash)
+        result = _stored_result(existing)
         await session.rollback()
-        if owner != user_id:
+        if not (same_owner and same_body):
             raise ApiError("idempotency_key_reused")
-        return _result(body), True
+        return result, True
 
     errors: list[ErrorDetail] = []
     resolver = await CategoryResolver.load(session, user_id, {x.category_id for x in body.expenses})
     for i, x in enumerate(body.expenses):
-        if (err := _check_date(x.date, index=i)) is not None:
+        if (err := _check_date(x.date, today, index=i)) is not None:
             errors.append(err)
         if (code := resolver.check(x.category_id)) is not None:
             errors.append(ErrorDetail(code=code, field="categoryId", index=i))
@@ -230,9 +277,17 @@ async def import_expenses(
         await session.rollback()
         raise validation_error(*errors)
 
-    dates = {x.date for x in body.expenses}
+    dates = [x.date for x in body.expenses]
+    record = ExpenseImport(
+        id=key,
+        user_id=user_id,
+        request_hash=request_hash,
+        imported_count=len(body.expenses),
+        date_from=min(dates),
+        date_to=max(dates),
+    )
     await lock_days(session, user_id, dates)
-    session.add(ExpenseImport(id=key, user_id=user_id))
+    session.add(record)
     await session.flush()
     session.add_all(
         Expense(
@@ -247,5 +302,6 @@ async def import_expenses(
         for x in body.expenses
     )
     await clear_free_days(session, user_id, dates)
+    result = _stored_result(record)
     await session.commit()
-    return _result(body), False
+    return result, False

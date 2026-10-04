@@ -115,3 +115,72 @@ async def test_other_categories_used(client, headers):
     await add_expense(client, headers, "2026-09-09", "5.00", CAFE)
     r = await client.get(f"/v1/expenses?from=2026-09-01&to=2026-09-30&categoryId={CAFE}", headers=headers)
     assert len(r.json()["items"]) == 1
+
+
+async def test_today_is_computed_in_client_timezone(client, headers):
+    from datetime import UTC, datetime
+    from zoneinfo import ZoneInfo
+
+    now = datetime.now(UTC)
+    ahead = now.astimezone(ZoneInfo("Pacific/Kiritimati")).date()  # UTC+14
+    behind = now.astimezone(ZoneInfo("Pacific/Pago_Pago")).date()  # UTC−11
+    assert ahead == behind + timedelta(days=1)
+    body = {"date": ahead.isoformat(), "amount": "1.00", "categoryId": PRODUCTS}
+
+    r = await client.post(
+        "/v1/expenses",
+        json=body,
+        headers={**headers, "Idempotency-Key": str(uuid.uuid4()), "X-Timezone": "Pacific/Pago_Pago"},
+    )
+    assert r.status_code == 422 and r.json()["error"]["details"][0]["code"] == "date_in_future"
+    r = await client.post(
+        "/v1/expenses",
+        json=body,
+        headers={**headers, "Idempotency-Key": str(uuid.uuid4()), "X-Timezone": "Pacific/Kiritimati"},
+    )
+    assert r.status_code == 201
+    assert r.json()["date"] == ahead.isoformat()  # календарная дата сохраняется как есть, без UTC
+
+    r = await client.put(
+        f"/v1/calendar/acknowledgements/{ahead.isoformat()}",
+        headers={**headers, "X-Timezone": "Pacific/Pago_Pago"},
+    )
+    assert r.json()["error"]["details"][0]["code"] == "date_in_future"
+
+
+async def test_timezone_header_required_and_validated(client, headers):
+    body = {"date": "2026-09-01", "amount": "1.00", "categoryId": PRODUCTS}
+    for value, code in (
+        ("", "timezone_required"),
+        ("Mars/Phobos", "timezone_invalid"),
+        ("+03:00", "timezone_invalid"),
+        ("../../etc/passwd", "timezone_invalid"),
+    ):
+        r = await client.post(
+            "/v1/expenses",
+            json=body,
+            headers={**headers, "Idempotency-Key": str(uuid.uuid4()), "X-Timezone": value},
+        )
+        assert r.status_code == 400, (value, r.text)
+        assert r.json()["error"]["code"] == "invalid_request"
+        assert r.json()["error"]["details"] == [{"field": "X-Timezone", "code": code}]
+    r = await client.put("/v1/calendar/acknowledgements/2026-09-01", headers={**headers, "X-Timezone": ""})
+    assert r.status_code == 400
+    r = await client.post(
+        "/v1/expenses/import",
+        json={"expenses": [body]},
+        headers={**headers, "Idempotency-Key": str(uuid.uuid4()), "X-Timezone": ""},
+    )
+    assert r.status_code == 400
+
+
+async def test_patch_needs_timezone_only_when_date_changes(client, headers):
+    e = await add_expense(client, headers, "2026-09-02")
+    r = await client.patch(
+        f"/v1/expenses/{e['id']}", json={"amount": "2"}, headers={**headers, "X-Timezone": ""}
+    )
+    assert r.status_code == 200
+    r = await client.patch(
+        f"/v1/expenses/{e['id']}", json={"date": "2026-09-03"}, headers={**headers, "X-Timezone": ""}
+    )
+    assert r.status_code == 400 and r.json()["error"]["details"][0]["code"] == "timezone_required"

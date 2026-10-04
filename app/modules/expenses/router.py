@@ -3,7 +3,14 @@ import uuid
 from fastapi import APIRouter, Query, Request, Response
 from pydantic import ValidationError
 
-from app.core.deps import CurrentUserDep, IdempotencyKeyDep, SessionDep, SettingsDep
+from app.core.deps import (
+    ClientTodayDep,
+    ClientTodayOptionalDep,
+    CurrentUserDep,
+    IdempotencyKeyDep,
+    SessionDep,
+    SettingsDep,
+)
 from app.core.errors import ApiError, ErrorDetail, validation_error
 from app.core.handlers import map_validation_errors
 from app.core.rate_limit import limiter
@@ -40,9 +47,14 @@ async def list_expenses(
 
 @router.post("", status_code=201, response_model=ExpenseOut)
 async def create_expense(
-    body: ExpenseCreate, response: Response, user: CurrentUserDep, key: IdempotencyKeyDep, session: SessionDep
+    body: ExpenseCreate,
+    response: Response,
+    user: CurrentUserDep,
+    key: IdempotencyKeyDep,
+    today: ClientTodayDep,
+    session: SessionDep,
 ) -> ExpenseOut:
-    e, replayed = await service.create_expense(session, user.id, key, body)
+    e, replayed = await service.create_expense(session, user.id, key, body, today)
     if replayed:
         response.headers["Idempotent-Replayed"] = "true"
     return service.to_out(e)
@@ -50,9 +62,13 @@ async def create_expense(
 
 @router.patch("/{expense_id}", response_model=ExpenseOut)
 async def update_expense(
-    expense_id: uuid.UUID, body: ExpenseUpdate, user: CurrentUserDep, session: SessionDep
+    expense_id: uuid.UUID,
+    body: ExpenseUpdate,
+    user: CurrentUserDep,
+    today: ClientTodayOptionalDep,
+    session: SessionDep,
 ) -> ExpenseOut:
-    return service.to_out(await service.update_expense(session, user.id, expense_id, body))
+    return service.to_out(await service.update_expense(session, user.id, expense_id, body, today))
 
 
 @router.delete("/{expense_id}", status_code=204)
@@ -77,6 +93,7 @@ async def import_expenses(
     response: Response,
     user: CurrentUserDep,
     key: IdempotencyKeyDep,
+    today: ClientTodayDep,
     session: SessionDep,
     settings: SettingsDep,
 ) -> ImportResult:
@@ -95,7 +112,7 @@ async def import_expenses(
         raise ApiError(code, details=[ErrorDetail(**d) for d in details]) from None
     if len(body.expenses) > settings.max_import_expenses:
         raise ApiError("payload_too_large")
-    result, replayed = await service.import_expenses(session, user.id, key, body)
+    result, replayed = await service.import_expenses(session, user.id, key, body, today)
     if replayed:
         response.headers["Idempotent-Replayed"] = "true"
     return result

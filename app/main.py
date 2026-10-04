@@ -5,6 +5,7 @@ from fastapi import APIRouter, FastAPI
 from app.core.config import get_settings
 from app.core.handlers import install_handlers
 from app.core.logging import setup_logging
+from app.core.openapi import install_openapi
 from app.core.secrets import load_lockbox_into_env
 from app.db.session import dispose_engine, init_engine
 from app.modules.account.router import router as account_router
@@ -45,6 +46,7 @@ def create_app() -> FastAPI:
         openapi_url="/v1/openapi.json",
     )
     install_handlers(app)
+    install_openapi(app)
 
     v1 = APIRouter(prefix="/v1")
     for r in (

@@ -23,8 +23,8 @@ jobs:
       DATABASE_URL: postgresql+asyncpg://money:money@localhost:5432/money_test
       ADMIN_DATABASE_URL: postgresql+asyncpg://money:money@localhost:5432/money
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
           cache: pip
@@ -34,26 +34,31 @@ jobs:
       - name: Migrations match models
         run: python -m alembic check
       - name: OpenAPI contract is up to date
-        run: |
-          python -c "import json; from app.main import app; print(json.dumps(app.openapi(), ensure_ascii=False, indent=2))" > /tmp/openapi.json
-          diff -q openapi.json /tmp/openapi.json
+        run: python scripts/openapi.py --check
 
   image:
     needs: test
     runs-on: ubuntu-latest
+    env:
+      # Публикуем образ только из main и только если реестр настроен
+      # (GitHub variable YC_REGISTRY_ID + secret YC_SA_JSON_KEY). Иначе — только сборка.
+      PUBLISH: ${{ github.ref == 'refs/heads/main' && github.event_name == 'push' && vars.YC_REGISTRY_ID != '' }}
+      IMAGE: ${{ vars.YC_REGISTRY_ID != '' && format('cr.yandex/{0}/money-planner-api', vars.YC_REGISTRY_ID) || 'money-planner-api' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: docker/setup-buildx-action@v3
       - name: Login to Yandex Container Registry
-        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-        run: echo '${{ secrets.YC_SA_JSON_KEY }}' | docker login --username json_key --password-stdin cr.yandex
+        if: env.PUBLISH == 'true'
+        env:
+          YC_SA_JSON_KEY: ${{ secrets.YC_SA_JSON_KEY }}
+        run: printf '%s' "$YC_SA_JSON_KEY" | docker login --username json_key --password-stdin cr.yandex
       - uses: docker/build-push-action@v6
         with:
           context: .
           target: runtime
-          push: ${{ github.ref == 'refs/heads/main' && github.event_name == 'push' }}
+          push: ${{ env.PUBLISH == 'true' }}
           tags: |
-            cr.yandex/${{ vars.YC_REGISTRY_ID }}/money-planner-api:${{ github.sha }}
-            cr.yandex/${{ vars.YC_REGISTRY_ID }}/money-planner-api:latest
+            ${{ env.IMAGE }}:${{ github.sha }}
+            ${{ env.IMAGE }}:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
