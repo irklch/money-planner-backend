@@ -49,7 +49,9 @@ async def clean():
 
 @pytest.fixture
 async def client():
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test", headers={"X-Timezone": "Europe/Moscow"}
+    ) as c:
         yield c
 
 

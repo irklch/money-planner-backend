@@ -1,5 +1,6 @@
 import uuid
 from dataclasses import dataclass
+from datetime import date
 from typing import Annotated
 
 from fastapi import Depends, Header, Request
@@ -7,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings, get_settings
+from app.core.dates import TIMEZONE_HEADER, parse_timezone, today_in
 from app.core.errors import ApiError
 from app.core.security import decode_access_token
 from app.db.models import User
@@ -60,3 +62,32 @@ def client_ip(request: Request) -> str:
     if fwd:
         return fwd.split(",")[0].strip()
     return request.client.host if request.client else "unknown"
+
+
+async def client_today(
+    x_timezone: Annotated[
+        str | None,
+        Header(
+            alias=TIMEZONE_HEADER,
+            description="IANA-идентификатор часового пояса пользователя, например Europe/Moscow. "
+            "По нему сервер определяет «сегодня» для проверки date ≤ сегодня.",
+        ),
+    ] = None,
+) -> date:
+    return today_in(parse_timezone(x_timezone))
+
+
+async def client_today_optional(
+    x_timezone: Annotated[
+        str | None,
+        Header(
+            alias=TIMEZONE_HEADER,
+            description="IANA-идентификатор часового пояса. Обязателен, если в теле меняется date.",
+        ),
+    ] = None,
+) -> date | None:
+    return today_in(parse_timezone(x_timezone)) if x_timezone else None
+
+
+ClientTodayDep = Annotated[date, Depends(client_today)]
+ClientTodayOptionalDep = Annotated[date | None, Depends(client_today_optional)]

@@ -17,6 +17,7 @@ dependencies = [
     "charset-normalizer>=3.3",
     "httpx>=0.27",
     "emoji>=2.12",
+    "tzdata>=2024.1",  # IANA-база для zoneinfo в slim-образе
 ]
 
 [dependency-groups]

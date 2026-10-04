@@ -25,17 +25,12 @@ class Settings(BaseSettings):
     jwt_secret: SecretStr = SecretStr("dev-only-change-me-dev-only-change-me")
     jwt_algorithm: str = "HS256"
     access_token_ttl_seconds: int = 15 * 60
-    # Схема БД: «≥ 12 мес, продлевается при использовании». Промпт этапа: 30 дней — открытый вопрос.
+    # Схема БД: 12 мес, продлевается ротацией при каждом использовании.
     refresh_token_ttl_days: int = 365
     refresh_grace_seconds: int = 60
     anonymous_idempotency_window_hours: int = 24
     # Секрет для детерминированных производных значений (refresh-токены при grace/replay).
     token_derivation_secret: SecretStr = SecretStr("dev-only-derivation-secret-change-me")
-
-    # --- Даты ---
-    # Сервер не знает часовой пояс клиента: «сегодня» = дата в самом восточном поясе (UTC+14),
-    # чтобы не отклонять корректную дату пользователя. Открытый вопрос.
-    max_client_utc_offset_hours: int = 14
 
     # --- Импорт ---
     max_upload_bytes: int = 10 * 1024 * 1024

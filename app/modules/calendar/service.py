@@ -6,7 +6,7 @@ from sqlalchemy import delete, func, select, text
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.dates import iter_days, latest_allowed_date
+from app.core.dates import iter_days
 from app.core.errors import ApiError, ErrorDetail, validation_error
 from app.db.models import Expense, FreeDay
 
@@ -53,8 +53,8 @@ async def day_state(session: AsyncSession, user_id: uuid.UUID, d: date) -> dict:
     return (await get_days(session, user_id, d, d))[0]
 
 
-async def acknowledge(session: AsyncSession, user_id: uuid.UUID, d: date) -> dict:
-    if d > latest_allowed_date():
+async def acknowledge(session: AsyncSession, user_id: uuid.UUID, d: date, today: date) -> dict:
+    if d > today:
         raise validation_error(ErrorDetail(code="date_in_future", field="date"))
     # Сериализуем с записью расходов этого пользователя на ту же дату.
     await session.execute(select(func.pg_advisory_xact_lock(day_lock_key(user_id, d))))

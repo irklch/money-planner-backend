@@ -13,6 +13,8 @@ from sqlalchemy import (
     Enum,
     ForeignKey,
     Index,
+    Integer,
+    LargeBinary,
     Numeric,
     SmallInteger,
     String,
@@ -137,14 +139,28 @@ class FreeDay(Base):
 
 
 class ExpenseImport(Base):
-    """Техническая идемпотентность POST /expenses/import. id = Idempotency-Key."""
+    """Техническая идемпотентность POST /expenses/import. id = Idempotency-Key.
+
+    request_hash — SHA-256 нормализованного тела; imported_count / date_from / date_to — результат
+    первоначального сохранения: ответ повтора не зависит от последующих правок и удалений расходов.
+    """
 
     __tablename__ = "expense_imports"
+    __table_args__ = (
+        CheckConstraint(
+            "imported_count > 0 AND date_from <= date_to AND octet_length(request_hash) = 32",
+            name="ck_expense_imports_result",
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
     user_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
     )
+    request_hash: Mapped[bytes] = mapped_column(LargeBinary(32), nullable=False)
+    imported_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    date_from: Mapped[date] = mapped_column(Date, nullable=False)
+    date_to: Mapped[date] = mapped_column(Date, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

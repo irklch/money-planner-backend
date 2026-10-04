@@ -2,7 +2,7 @@ from datetime import date
 
 from fastapi import APIRouter, Query
 
-from app.core.deps import CurrentUserDep, SessionDep
+from app.core.deps import ClientTodayDep, CurrentUserDep, SessionDep
 from app.core.errors import ErrorDetail, validation_error
 from app.core.schemas import ApiModel, parse_date_param
 from app.modules.calendar import service
@@ -35,8 +35,10 @@ async def get_days(
 
 
 @router.put("/acknowledgements/{day}", response_model=CalendarDay)
-async def acknowledge(day: str, user: CurrentUserDep, session: SessionDep) -> CalendarDay:
-    return CalendarDay(**await service.acknowledge(session, user.id, parse_date_param(day)))
+async def acknowledge(
+    day: str, user: CurrentUserDep, today: ClientTodayDep, session: SessionDep
+) -> CalendarDay:
+    return CalendarDay(**await service.acknowledge(session, user.id, parse_date_param(day), today))
 
 
 @router.delete("/acknowledgements/{day}", response_model=CalendarDay)
