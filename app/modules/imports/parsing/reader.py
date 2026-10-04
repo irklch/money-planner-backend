@@ -43,7 +43,7 @@ def _read_xlsx(data: bytes) -> Table:
         raise StatementError("corrupted_file") from None
     if not sheets:
         raise StatementError("corrupted_file")
-    return Table(sheets=sheets)
+    return Table(sheets=sheets, fmt="xlsx")
 
 
 def _read_csv(data: bytes) -> Table:
@@ -69,4 +69,4 @@ def _read_csv(data: bytes) -> Table:
             rows.append(row)
     except csv.Error:
         raise StatementError("corrupted_file") from None
-    return Table(sheets=[Sheet(name="csv", rows=rows)])
+    return Table(sheets=[Sheet(name="csv", rows=rows)], fmt="csv")

@@ -43,6 +43,8 @@ class TabularAdapter:
     expenses_negative: ClassVar[bool] = True
     # Дополнительный признак банка: строки, одна из которых должна встретиться в шапке файла.
     signature: ClassVar[tuple[str, ...]] = ()
+    # Форматы файла, на которых адаптер проверен.
+    formats: ClassVar[tuple[str, ...]] = ("xlsx", "csv")
 
     def _find(self, row: list, variants: tuple[str, ...]) -> int | None:
         normalized = [norm_header(c) for c in row]
@@ -52,6 +54,8 @@ class TabularAdapter:
         return None
 
     def _layout(self, table: Table) -> _Layout | None:
+        if table.fmt is not None and table.fmt not in self.formats:
+            return None
         for sheet in table.sheets:
             head = sheet.rows[:HEADER_SCAN_ROWS]
             if self.signature:
