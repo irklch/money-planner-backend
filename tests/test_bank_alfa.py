@@ -96,6 +96,9 @@ def op_row(op_date, amount, desc="Тестовая покупка", status="Вы
     return [op_date, posted, None, code, cat, *[None] * 6, desc, amount, None, status]
 
 
+MISSING = object()  # поле шапки отсутствует целиком (нет строки с подписью)
+
+
 def alfa_xlsx(
     ops,
     *,
@@ -113,8 +116,13 @@ def alfa_xlsx(
     ws.append([title])
     period = "За период с 01.04.2024 по 30.04.2024"
     ws.append(["Номер счета", None, "40817810000000000001", *[None] * 7, period])
-    ws.append(["Валюта счета", None, currency, *[None] * 7, "Расходы", None, None, "999,99 RUR"])
-    ws.append(["Клиент", None, client])
+    currency_label = None if currency is MISSING else "Валюта счета"
+    currency = None if currency is MISSING else currency
+    ws.append([currency_label, None, currency, *[None] * 7, "Расходы", None, None, "999,99 RUR"])
+    # Правый блок шапки в той же строке: пустое поле «Клиент» не должно подхватить его текст.
+    client_label = None if client is MISSING else "Клиент"
+    client = None if client is MISSING else client
+    ws.append([client_label, None, client, *[None] * 7, "На дату формирования выписки"])
     ws.append([])
     ws.append(["Операции по счету"])
     ws.append([])
@@ -495,3 +503,39 @@ async def test_rule_7_bank_operation_types_are_not_categories(client, headers):
     assert (ops[0]["categoryId"], ops[0]["categoryStatus"]) == (None, "unassigned")
     sent = " ".join(m.text for m in llm.calls[0][1])
     assert "Супермаркеты" not in sent and "ТОВАРЫ СИНТЕТИКА" in sent
+
+
+# ---------- Поля шапки «Валюта счета» и «Клиент» ----------
+
+
+@pytest.mark.parametrize("currency", [MISSING, "", "   ", None])
+async def test_missing_or_empty_currency_is_unknown_bank(client, headers, currency):
+    data = alfa_xlsx(BASIC, currency=currency)
+    assert detect(data) is None
+    r = await upload(client, headers, data)
+    assert r.status_code == 422 and r.json()["error"]["code"] == "unknown_bank"
+
+
+@pytest.mark.parametrize("currency", ["RUR", "RUB", "rub", " RUR "])
+def test_ruble_currency_codes(currency):
+    assert isinstance(detect(alfa_xlsx(BASIC, currency=currency)), AlfaBankAdapter)
+
+
+@pytest.mark.parametrize("statement_client", [MISSING, "", "   "])
+async def test_without_client_transfers_stay_regular_operations(client, headers, statement_client):
+    data = alfa_xlsx(
+        [
+            op_row("01.04.2024", "-100,00"),
+            op_row("02.04.2024", "-700,00", OWN),
+            op_row("03.04.2024", "500,00", OWN),
+        ],
+        client=statement_client,
+    )
+    res = parse(data)
+    assert res.own_transfers == []
+    assert [o.amount for o in res.operations] == [Decimal("-100.00"), Decimal("-700.00"), Decimal("500.00")]
+
+    body = (await upload(client, headers, data)).json()
+    # Списание — расход на проверку, поступление — в skippedIncomeCount.
+    assert [o["amount"] for o in body["operations"]] == ["100.00", "700.00"]
+    assert body["skippedIncomeCount"] == 1

@@ -34,6 +34,8 @@ from app.modules.imports.parsing.tabular import HEADER_SCAN_ROWS, TabularAdapter
 # дата проводки: в образце они входят в итог «Расходы», а «Неподтвержденные операции» = 0.
 POSTED_STATUS = "выполнен"
 RUBLE_CODES = {"rur", "rub", "810", "643"}
+# Значение поля шапки стоит в 1–2 колонках правее подписи (подпись в объединённых ячейках).
+VALUE_SPAN = 3
 OWN_TRANSFER = "внутрибанковский перевод между счетами"
 _PERIOD = re.compile(r"за период с (\d{2}\.\d{2}\.\d{4}) по (\d{2}\.\d{2}\.\d{4})")
 # Признаки документа: заголовок выписки и подпись банка. Без них таблица с похожими колонками
@@ -129,27 +131,36 @@ def _has_bank_mark(sheet: Sheet) -> bool:
 
 
 def _header_value(rows: list[list], label: str) -> str | None:
-    """Значение поля шапки: первая непустая ячейка правее подписи."""
+    """Значение поля шапки: первая непустая ячейка в пределах VALUE_SPAN колонок правее подписи.
+
+    Дальше в той же строке начинается правый блок шапки («Расходы», «Поступления»), и пустое поле
+    не должно подхватывать его текст. Пустое или отсутствующее поле → None.
+    """
     for row in rows:
         for i, c in enumerate(row):
             if norm_header(c) == label:
-                rest = [cell_text(v) for v in row[i + 1 :] if cell_text(v)]
+                rest = [cell_text(v) for v in row[i + 1 : i + 1 + VALUE_SPAN] if cell_text(v)]
                 return rest[0] if rest else None
     return None
 
 
 def _is_ruble(rows: list[list]) -> bool:
+    """Только явно указанная рублёвая валюта. Нет поля, пустое или другая валюта → не распознаём."""
     currency = _header_value(rows, "валюта счета")
-    return currency is None or currency.casefold() in RUBLE_CODES
+    return currency is not None and currency.casefold() in RUBLE_CODES
 
 
 def _is_own_transfer(desc: str | None, client: str | None) -> bool:
-    """«Внутрибанковский перевод между счетами, <ФИО клиента>. Со счёта … на счёт …»."""
+    """«Внутрибанковский перевод между счетами, <ФИО клиента>. Со счёта … на счёт …».
+
+    Свой перевод — только при подтверждённом совпадении ФИО с «Клиент» из шапки. Без клиента
+    в шапке перевод остаётся обычной операцией (списание — расход на проверку, поступление — доход).
+    """
     text = norm_header(desc)
     if not text.startswith(OWN_TRANSFER):
         return False
-    if client is None:
-        return True
+    if not client:
+        return False
     owner = text[len(OWN_TRANSFER) :].lstrip(" ,").split(".", 1)[0].strip()
     return owner == norm_header(client)
 
