@@ -25,6 +25,7 @@ class Sheet:
 @dataclass
 class Table:
     sheets: list[Sheet]
+    fmt: str | None = None  # "xlsx" | "csv" — адаптер заявляет только проверенные форматы
 
 
 @dataclass
@@ -45,6 +46,8 @@ class UnreadRow:
 class AdapterResult:
     operations: list[RawOperation] = field(default_factory=list)
     unread: list[UnreadRow] = field(default_factory=list)
+    # Переводы между собственными счетами: не расход и не поступление, в ответ не попадают.
+    own_transfers: list[RawOperation] = field(default_factory=list)
     period: tuple[date, date] | None = None
 
 

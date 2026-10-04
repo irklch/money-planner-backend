@@ -1,10 +1,15 @@
 """Реестр банковских адаптеров.
 
 ВАЖНО: адаптер добавляется сюда только после проверки на реальных анонимизированных
-выписках банка (тест с образцом в tests/fixtures/banks/<code>/). Пока проверенных образцов нет,
-реестр пуст и любой файл получает 422 unknown_bank. Ориентир из UX: Т-Банк, Сбер, Альфа-Банк.
+выписках банка (тест с образцом в tests/fixtures/banks/<code>/). Поддерживаются только
+проверенные варианты выписок; остальные файлы получают 422 unknown_bank.
+
+| Банк       | code | Формат                                   | Образец                    |
+|------------|------|------------------------------------------|----------------------------|
+| Альфа-Банк | alfa | .xlsx «Выписка по счету» (рубли)         | tests/fixtures/banks/alfa/ |
 """
 
+from app.modules.imports.parsing.alfa import AlfaBankAdapter
 from app.modules.imports.parsing.base import BankAdapter, Table
 
 _ADAPTERS: list[BankAdapter] = []
@@ -29,3 +34,6 @@ def detect(table: Table) -> BankAdapter | None:
         if adapter.detect(table):
             return adapter
     return None
+
+
+register(AlfaBankAdapter())
