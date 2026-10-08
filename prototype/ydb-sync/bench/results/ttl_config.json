@@ -1,0 +1,4 @@
+{
+  "column": "created_at",
+  "expire_after_seconds": 2592000
+}

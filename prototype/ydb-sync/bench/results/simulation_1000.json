@@ -1,0 +1,52 @@
+{
+  "lww_clock": {
+    "histories": 1000,
+    "writes": 107102,
+    "conflicts": 2939,
+    "violations": {
+      "causal_lost": 693,
+      "skew_misorder": 761,
+      "resurrected": 479
+    },
+    "histories_with": {
+      "causal_lost": 314,
+      "skew_misorder": 468,
+      "resurrected": 358
+    }
+  },
+  "hlc": {
+    "histories": 1000,
+    "writes": 107112,
+    "conflicts": 1724,
+    "violations": {
+      "skew_misorder": 711,
+      "resurrected": 547
+    },
+    "histories_with": {
+      "skew_misorder": 454,
+      "resurrected": 398
+    }
+  },
+  "hlc_dw": {
+    "histories": 1000,
+    "writes": 107113,
+    "conflicts": 1913,
+    "violations": {
+      "skew_misorder": 625
+    },
+    "histories_with": {
+      "skew_misorder": 428
+    }
+  },
+  "version": {
+    "histories": 1000,
+    "writes": 107113,
+    "conflicts": 3421,
+    "violations": {
+      "skew_misorder": 666
+    },
+    "histories_with": {
+      "skew_misorder": 440
+    }
+  }
+}

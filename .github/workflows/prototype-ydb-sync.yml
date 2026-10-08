@@ -1,0 +1,35 @@
+name: Prototype YDB sync
+
+# Изолированный прототип (prototype/ydb-sync). Основной CI (ci.yml) не меняется.
+on:
+  pull_request:
+    paths: ["prototype/ydb-sync/**", ".github/workflows/prototype-ydb-sync.yml"]
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      ydb:
+        image: ydbplatform/local-ydb:latest
+        ports: ["2136:2136"]
+        env:
+          GRPC_PORT: "2136"
+          YDB_USE_IN_MEMORY_PDISKS: "true"
+        options: >-
+          --hostname localhost
+          --health-cmd "/ydb -e grpc://localhost:2136 -d /local scheme ls"
+          --health-interval 3s --health-retries 60
+    defaults:
+      run:
+        working-directory: prototype/ydb-sync
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: pip install --upgrade "pip>=25.1" && pip install . --group dev
+      - run: ruff check . && ruff format --check .
+      - name: Tests (scenarios, simulation, YDB properties incl. TTL and tx limits)
+        run: pytest -q
+      - run: docker build -t sync-proto:ci .

@@ -1,0 +1,37 @@
+# Локальный стенд прототипа: YDB + sync API. Порты опубликованы только на 127.0.0.1:
+# локальная YDB работает без аутентификации и не должна быть видна в сети.
+services:
+  ydb:
+    image: ydbplatform/local-ydb:latest
+    platform: linux/amd64   # официальный образ только amd64; на Apple Silicon — через Rosetta (colima --vz-rosetta)
+    hostname: localhost
+    environment:
+      GRPC_PORT: "2136"
+      MON_PORT: "8765"
+      YDB_USE_IN_MEMORY_PDISKS: "true"
+      YDB_DEFAULT_LOG_LEVEL: NOTICE
+    ports:
+      - "127.0.0.1:2136:2136"
+      - "127.0.0.1:8765:8765"
+      - "127.0.0.1:8080:8080"   # порт api: api живёт в сетевом пространстве ydb (см. ниже)
+    healthcheck:
+      test: ["CMD-SHELL", "/ydb -e grpc://localhost:2136 -d /local scheme ls >/dev/null 2>&1"]
+      interval: 3s
+      retries: 60
+
+  api:
+    build: .
+    environment:
+      ENV: local
+      # local-ydb отдаёт при discovery эндпоинт localhost:2136, поэтому api делит с ней сеть.
+      YDB_ENDPOINT: grpc://localhost:2136
+      YDB_DATABASE: /local
+      YDB_AUTH: anonymous
+      # Секрет только для локального стенда, генерируется при запуске: см. README.
+      SYNC_JWT_SECRET: ${SYNC_JWT_SECRET:-}   # пусто → приложение не стартует
+      SYNC_STRATEGY: ${SYNC_STRATEGY:-version}
+      PORT: "8080"
+    network_mode: "service:ydb"
+    read_only: true
+    depends_on:
+      ydb: { condition: service_healthy }

@@ -1,0 +1,24 @@
+{
+  "by_user_size": {
+    "big": {
+      "pull10_ru": 12,
+      "push1_ru": 2
+    },
+    "small": {
+      "pull10_ru": 12,
+      "push1_ru": 2
+    }
+  },
+  "key_lookup_variants": {
+    "join_first_execution_ru": 2,
+    "join": {
+      "push10_big_ru": 2,
+      "push10_small_ru": 2
+    },
+    "tuple_in_first_execution_ru": 20,
+    "tuple_in": {
+      "push10_big_ru": 2,
+      "push10_small_ru": 2
+    }
+  }
+}

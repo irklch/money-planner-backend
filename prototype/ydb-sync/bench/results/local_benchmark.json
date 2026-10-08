@@ -1,0 +1,894 @@
+{
+  "target": "local",
+  "when": "2026-10-08T11:40:40.303173+00:00",
+  "environment": {
+    "machine": "arm64",
+    "python": "3.12.15",
+    "ydb": "ydbplatform/local-ydb:latest (amd64 под Rosetta в colima, in-memory PDisk)",
+    "api": "FastAPI in-process (httpx.ASGITransport), без сети между клиентом и API"
+  },
+  "operations": [
+    {
+      "op": "create_1",
+      "n": 30,
+      "note": "",
+      "latency_p50_ms": 7.0,
+      "latency_p95_ms": 8.0,
+      "latency_max_ms": 8.3,
+      "app_p50_ms": 6.1,
+      "ydb_calls": 2.0,
+      "tx_conflicts": 0,
+      "ru_header": 2.0,
+      "ru_formula": 9.0,
+      "read_rows": 1.0,
+      "write_rows": 4.0,
+      "write_bytes": 965.0,
+      "cpu_us": 349.5,
+      "request_bytes": 522.0,
+      "response_bytes": 161.0,
+      "tables": {
+        "sync_state": {
+          "read_rows": 1,
+          "write_rows": 1,
+          "write_bytes": 60
+        },
+        "sync_mutations": {
+          "read_rows": 0,
+          "write_rows": 1,
+          "write_bytes": 217
+        },
+        "sync_records": {
+          "read_rows": 0,
+          "write_rows": 1,
+          "write_bytes": 345
+        },
+        "by_version(index)": {
+          "read_rows": 0,
+          "write_rows": 1,
+          "write_bytes": 345
+        }
+      }
+    },
+    {
+      "op": "update_1",
+      "n": 30,
+      "note": "",
+      "latency_p50_ms": 7.0,
+      "latency_p95_ms": 7.6,
+      "latency_max_ms": 8.6,
+      "app_p50_ms": 6.2,
+      "ydb_calls": 2.0,
+      "tx_conflicts": 0,
+      "ru_header": 3.0,
+      "ru_formula": 13.0,
+      "read_rows": 3.0,
+      "write_rows": 5.0,
+      "write_bytes": 972.0,
+      "cpu_us": 374.5,
+      "request_bytes": 526.0,
+      "response_bytes": 161.0,
+      "tables": {
+        "sync_state": {
+          "read_rows": 1,
+          "write_rows": 1,
+          "write_bytes": 60
+        },
+        "sync_mutations": {
+          "read_rows": 0,
+          "write_rows": 1,
+          "write_bytes": 218
+        },
+        "sync_records": {
+          "read_rows": 2,
+          "write_rows": 1,
+          "write_bytes": 347
+        },
+        "by_version(index)": {
+          "read_rows": 0,
+          "write_rows": 2,
+          "write_bytes": 347
+        }
+      }
+    },
+    {
+      "op": "delete_1",
+      "n": 30,
+      "note": "",
+      "latency_p50_ms": 7.1,
+      "latency_p95_ms": 9.7,
+      "latency_max_ms": 9.8,
+      "app_p50_ms": 6.2,
+      "ydb_calls": 2.0,
+      "tx_conflicts": 0,
+      "ru_header": 3.0,
+      "ru_formula": 13.0,
+      "read_rows": 3.0,
+      "write_rows": 5.0,
+      "write_bytes": 640.0,
+      "cpu_us": 399.5,
+      "request_bytes": 386.0,
+      "response_bytes": 161.0,
+      "tables": {
+        "sync_state": {
+          "read_rows": 1,
+          "write_rows": 1,
+          "write_bytes": 60
+        },
+        "sync_mutations": {
+          "read_rows": 0,
+          "write_rows": 1,
+          "write_bytes": 218
+        },
+        "sync_records": {
+          "read_rows": 2,
+          "write_rows": 1,
+          "write_bytes": 181
+        },
+        "by_version(index)": {
+          "read_rows": 0,
+          "write_rows": 2,
+          "write_bytes": 181
+        }
+      }
+    },
+    {
+      "op": "push_8",
+      "n": 30,
+      "note": "",
+      "latency_p50_ms": 7.0,
+      "latency_p95_ms": 10.0,
+      "latency_max_ms": 10.1,
+      "app_p50_ms": 6.0,
+      "ydb_calls": 2.0,
+      "tx_conflicts": 0,
+      "ru_header": 2.0,
+      "ru_formula": 51.0,
+      "read_rows": 1.0,
+      "write_rows": 25.0,
+      "write_bytes": 7340.0,
+      "cpu_us": 409.0,
+      "request_bytes": 3905.0,
+      "response_bytes": 1205.0,
+      "tables": {
+        "sync_state": {
+          "read_rows": 1,
+          "write_rows": 1,
+          "write_bytes": 60
+        },
+        "sync_mutations": {
+          "read_rows": 0,
+          "write_rows": 8,
+          "write_bytes": 1744
+        },
+        "sync_records": {
+          "read_rows": 0,
+          "write_rows": 8,
+          "write_bytes": 2768
+        },
+        "by_version(index)": {
+          "read_rows": 0,
+          "write_rows": 8,
+          "write_bytes": 2768
+        }
+      }
+    },
+    {
+      "op": "push_10",
+      "n": 30,
+      "note": "",
+      "latency_p50_ms": 6.9,
+      "latency_p95_ms": 8.3,
+      "latency_max_ms": 8.4,
+      "app_p50_ms": 6.0,
+      "ydb_calls": 2.0,
+      "tx_conflicts": 0,
+      "ru_header": 2.0,
+      "ru_formula": 63.0,
+      "read_rows": 1.0,
+      "write_rows": 31.0,
+      "write_bytes": 9160.0,
+      "cpu_us": 420.5,
+      "request_bytes": 4871.0,
+      "response_bytes": 1503.0,
+      "tables": {
+        "sync_state": {
+          "read_rows": 1,
+          "write_rows": 1,
+          "write_bytes": 60
+        },
+        "sync_mutations": {
+          "read_rows": 0,
+          "write_rows": 10,
+          "write_bytes": 2180
+        },
+        "sync_records": {
+          "read_rows": 0,
+          "write_rows": 10,
+          "write_bytes": 3460
+        },
+        "by_version(index)": {
+          "read_rows": 0,
+          "write_rows": 10,
+          "write_bytes": 3460
+        }
+      }
+    },
+    {
+      "op": "push_100",
+      "n": 30,
+      "note": "",
+      "latency_p50_ms": 13.6,
+      "latency_p95_ms": 15.8,
+      "latency_max_ms": 23.7,
+      "app_p50_ms": 11.95,
+      "ydb_calls": 2.0,
+      "tx_conflicts": 0,
+      "ru_header": 2.0,
+      "ru_formula": 603.0,
+      "read_rows": 1.0,
+      "write_rows": 301.0,
+      "write_bytes": 91312.0,
+      "cpu_us": 997.0,
+      "request_bytes": 48417.0,
+      "response_bytes": 15013.0,
+      "tables": {
+        "sync_state": {
+          "read_rows": 1,
+          "write_rows": 1,
+          "write_bytes": 60
+        },
+        "sync_mutations": {
+          "read_rows": 0,
+          "write_rows": 100,
+          "write_bytes": 21900
+        },
+        "sync_records": {
+          "read_rows": 0,
+          "write_rows": 100,
+          "write_bytes": 34675
+        },
+        "by_version(index)": {
+          "read_rows": 0,
+          "write_rows": 100,
+          "write_bytes": 34675
+        }
+      }
+    },
+    {
+      "op": "push_500",
+      "n": 6,
+      "note": "",
+      "latency_p50_ms": 44.5,
+      "latency_p95_ms": 46.3,
+      "latency_max_ms": 46.3,
+      "app_p50_ms": 39.85,
+      "ydb_calls": 2.0,
+      "tx_conflicts": 0,
+      "ru_header": 3.0,
+      "ru_formula": 3003.0,
+      "read_rows": 1.0,
+      "write_rows": 1501.0,
+      "write_bytes": 456461.0,
+      "cpu_us": 3666.0,
+      "request_bytes": 241991.5,
+      "response_bytes": 75013.0,
+      "tables": {
+        "sync_state": {
+          "read_rows": 1,
+          "write_rows": 1,
+          "write_bytes": 60
+        },
+        "sync_mutations": {
+          "read_rows": 0,
+          "write_rows": 500,
+          "write_bytes": 109500
+        },
+        "sync_records": {
+          "read_rows": 0,
+          "write_rows": 500,
+          "write_bytes": 173451
+        },
+        "by_version(index)": {
+          "read_rows": 0,
+          "write_rows": 500,
+          "write_bytes": 173451
+        }
+      }
+    },
+    {
+      "op": "pull_0_no_changes",
+      "n": 30,
+      "note": "самый частый запрос",
+      "latency_p50_ms": 2.7,
+      "latency_p95_ms": 3.4,
+      "latency_max_ms": 3.5,
+      "app_p50_ms": 2.2,
+      "ydb_calls": 1.0,
+      "tx_conflicts": 0,
+      "ru_header": 1.0,
+      "ru_formula": 1.0,
+      "read_rows": 1.0,
+      "write_rows": 0.0,
+      "write_bytes": 0.0,
+      "cpu_us": 31.0,
+      "request_bytes": 0.0,
+      "response_bytes": 48.0,
+      "tables": {
+        "sync_state": {
+          "read_rows": 1,
+          "write_rows": 0,
+          "write_bytes": 0
+        },
+        "by_version(index)": {
+          "read_rows": 0,
+          "write_rows": 0,
+          "write_bytes": 0
+        }
+      }
+    },
+    {
+      "op": "pull_10",
+      "n": 30,
+      "note": "",
+      "latency_p50_ms": 3.0,
+      "latency_p95_ms": 3.5,
+      "latency_max_ms": 3.6,
+      "app_p50_ms": 2.5,
+      "ydb_calls": 1.0,
+      "tx_conflicts": 0,
+      "ru_header": 11.0,
+      "ru_formula": 11.0,
+      "read_rows": 11.0,
+      "write_rows": 0.0,
+      "write_bytes": 0.0,
+      "cpu_us": 51.0,
+      "request_bytes": 0.0,
+      "response_bytes": 4357.0,
+      "tables": {
+        "sync_state": {
+          "read_rows": 1,
+          "write_rows": 0,
+          "write_bytes": 0
+        },
+        "by_version(index)": {
+          "read_rows": 10,
+          "write_rows": 0,
+          "write_bytes": 0
+        }
+      }
+    },
+    {
+      "op": "pull_100",
+      "n": 30,
+      "note": "",
+      "latency_p50_ms": 4.6,
+      "latency_p95_ms": 5.1,
+      "latency_max_ms": 5.3,
+      "app_p50_ms": 3.9,
+      "ydb_calls": 1.0,
+      "tx_conflicts": 0,
+      "ru_header": 101.0,
+      "ru_formula": 101.0,
+      "read_rows": 101.0,
+      "write_rows": 0.0,
+      "write_bytes": 0.0,
+      "cpu_us": 133.5,
+      "request_bytes": 0.0,
+      "response_bytes": 43122.0,
+      "tables": {
+        "sync_state": {
+          "read_rows": 1,
+          "write_rows": 0,
+          "write_bytes": 0
+        },
+        "by_version(index)": {
+          "read_rows": 100,
+          "write_rows": 0,
+          "write_bytes": 0
+        }
+      }
+    },
+    {
+      "op": "pull_500",
+      "n": 30,
+      "note": "",
+      "latency_p50_ms": 10.3,
+      "latency_p95_ms": 11.1,
+      "latency_max_ms": 19.5,
+      "app_p50_ms": 8.4,
+      "ydb_calls": 1.0,
+      "tx_conflicts": 0,
+      "ru_header": 501.0,
+      "ru_formula": 501.0,
+      "read_rows": 501.0,
+      "write_rows": 0.0,
+      "write_bytes": 0.0,
+      "cpu_us": 406.0,
+      "request_bytes": 0.0,
+      "response_bytes": 215498.0,
+      "tables": {
+        "sync_state": {
+          "read_rows": 1,
+          "write_rows": 0,
+          "write_bytes": 0
+        },
+        "by_version(index)": {
+          "read_rows": 500,
+          "write_rows": 0,
+          "write_bytes": 0
+        }
+      }
+    },
+    {
+      "op": "initial_upload_1000",
+      "n": 6,
+      "note": "2 запроса × 500",
+      "latency_p50_ms": 85.7,
+      "latency_p95_ms": 95.7,
+      "latency_max_ms": 95.7,
+      "app_p50_ms": 75.95,
+      "ydb_calls": 4.0,
+      "tx_conflicts": 0,
+      "ru_header": 5.0,
+      "ru_formula": 6005.0,
+      "read_rows": 1.0,
+      "write_rows": 3002.0,
+      "write_bytes": 895547.0,
+      "cpu_us": 6942.0,
+      "request_bytes": 482835.0,
+      "response_bytes": 148919.0,
+      "tables": null
+    },
+    {
+      "op": "initial_download_1000",
+      "n": 6,
+      "note": "страницы по 500",
+      "latency_p50_ms": 41.8,
+      "latency_p95_ms": 43.5,
+      "latency_max_ms": 43.5,
+      "app_p50_ms": 34.2,
+      "ydb_calls": 4.0,
+      "tx_conflicts": 0,
+      "ru_header": 2007.0,
+      "ru_formula": 2007.0,
+      "read_rows": 2007.0,
+      "write_rows": 0.0,
+      "write_bytes": 0.0,
+      "cpu_us": 1614.5,
+      "request_bytes": 0.0,
+      "response_bytes": 851611.0,
+      "tables": null
+    },
+    {
+      "op": "repush_processed_100",
+      "n": 30,
+      "note": "",
+      "latency_p50_ms": 9.4,
+      "latency_p95_ms": 10.7,
+      "latency_max_ms": 11.0,
+      "app_p50_ms": 7.85,
+      "ydb_calls": 2.0,
+      "tx_conflicts": 0,
+      "ru_header": 201.0,
+      "ru_formula": 201.0,
+      "read_rows": 201.0,
+      "write_rows": 0.0,
+      "write_bytes": 0.0,
+      "cpu_us": 424.0,
+      "request_bytes": 48206.0,
+      "response_bytes": 14913.0,
+      "tables": {
+        "sync_state": {
+          "read_rows": 1,
+          "write_rows": 0,
+          "write_bytes": 0
+        },
+        "sync_mutations": {
+          "read_rows": 100,
+          "write_rows": 0,
+          "write_bytes": 0
+        },
+        "sync_records": {
+          "read_rows": 100,
+          "write_rows": 0,
+          "write_bytes": 0
+        }
+      }
+    }
+  ],
+  "contention": [
+    {
+      "concurrent_devices": 1,
+      "ok": 1,
+      "failed_503": 0,
+      "tx_conflicts": 0,
+      "max_attempts": 1,
+      "latency_max_ms": 8.9,
+      "wall_ms": 9.1
+    },
+    {
+      "concurrent_devices": 2,
+      "ok": 2,
+      "failed_503": 0,
+      "tx_conflicts": 1,
+      "max_attempts": 2,
+      "latency_max_ms": 19.7,
+      "wall_ms": 20.1
+    },
+    {
+      "concurrent_devices": 4,
+      "ok": 4,
+      "failed_503": 0,
+      "tx_conflicts": 6,
+      "max_attempts": 4,
+      "latency_max_ms": 37.1,
+      "wall_ms": 38.1
+    },
+    {
+      "concurrent_devices": 8,
+      "ok": 8,
+      "failed_503": 0,
+      "tx_conflicts": 28,
+      "max_attempts": 8,
+      "latency_max_ms": 87.4,
+      "wall_ms": 88.9
+    },
+    {
+      "concurrent_devices": 16,
+      "ok": 16,
+      "failed_503": 0,
+      "tx_conflicts": 89,
+      "max_attempts": 13,
+      "latency_max_ms": 176.0,
+      "wall_ms": 178.6
+    },
+    {
+      "concurrent_devices": 24,
+      "ok": 21,
+      "failed_503": 3,
+      "tx_conflicts": 137,
+      "max_attempts": 16,
+      "latency_max_ms": 290.4,
+      "wall_ms": 305.0
+    }
+  ],
+  "variants": {
+    "baseline(cover+log+join)": {
+      "push_10": {
+        "op": "push_10",
+        "n": 5,
+        "note": "",
+        "latency_p50_ms": 8.1,
+        "latency_p95_ms": 9.0,
+        "latency_max_ms": 9.0,
+        "app_p50_ms": 7.0,
+        "ydb_calls": 2,
+        "tx_conflicts": 0,
+        "ru_header": 2,
+        "ru_formula": 63,
+        "read_rows": 1,
+        "write_rows": 31,
+        "write_bytes": 9010,
+        "cpu_us": 439,
+        "request_bytes": 4872,
+        "response_bytes": 1513,
+        "tables": {
+          "sync_state": {
+            "read_rows": 1,
+            "write_rows": 1,
+            "write_bytes": 60
+          },
+          "sync_mutations": {
+            "read_rows": 0,
+            "write_rows": 10,
+            "write_bytes": 2190
+          },
+          "sync_records": {
+            "read_rows": 0,
+            "write_rows": 10,
+            "write_bytes": 3380
+          },
+          "by_version(index)": {
+            "read_rows": 0,
+            "write_rows": 10,
+            "write_bytes": 3380
+          }
+        }
+      },
+      "pull_100": {
+        "op": "pull_100",
+        "n": 5,
+        "note": "",
+        "latency_p50_ms": 4.9,
+        "latency_p95_ms": 5.2,
+        "latency_max_ms": 5.2,
+        "app_p50_ms": 3.9,
+        "ydb_calls": 1,
+        "tx_conflicts": 0,
+        "ru_header": 102,
+        "ru_formula": 102,
+        "read_rows": 102,
+        "write_rows": 0,
+        "write_bytes": 0,
+        "cpu_us": 143,
+        "request_bytes": 0,
+        "response_bytes": 42246,
+        "tables": {
+          "sync_state": {
+            "read_rows": 1,
+            "write_rows": 0,
+            "write_bytes": 0
+          },
+          "by_version(index)": {
+            "read_rows": 101,
+            "write_rows": 0,
+            "write_bytes": 0
+          }
+        }
+      }
+    },
+    "no_mutation_log": {
+      "push_10": {
+        "op": "push_10",
+        "n": 5,
+        "note": "",
+        "latency_p50_ms": 8.1,
+        "latency_p95_ms": 8.8,
+        "latency_max_ms": 8.8,
+        "app_p50_ms": 6.9,
+        "ydb_calls": 2,
+        "tx_conflicts": 0,
+        "ru_header": 2,
+        "ru_formula": 43,
+        "read_rows": 1,
+        "write_rows": 21,
+        "write_bytes": 6820,
+        "cpu_us": 430,
+        "request_bytes": 4872,
+        "response_bytes": 1513,
+        "tables": {
+          "sync_state": {
+            "read_rows": 1,
+            "write_rows": 1,
+            "write_bytes": 60
+          },
+          "sync_mutations": {
+            "read_rows": 0,
+            "write_rows": 0,
+            "write_bytes": 0
+          },
+          "sync_records": {
+            "read_rows": 0,
+            "write_rows": 10,
+            "write_bytes": 3380
+          },
+          "by_version(index)": {
+            "read_rows": 0,
+            "write_rows": 10,
+            "write_bytes": 3380
+          }
+        }
+      },
+      "pull_100": {
+        "op": "pull_100",
+        "n": 5,
+        "note": "",
+        "latency_p50_ms": 4.8,
+        "latency_p95_ms": 5.2,
+        "latency_max_ms": 5.2,
+        "app_p50_ms": 3.7,
+        "ydb_calls": 1,
+        "tx_conflicts": 0,
+        "ru_header": 102,
+        "ru_formula": 102,
+        "read_rows": 102,
+        "write_rows": 0,
+        "write_bytes": 0,
+        "cpu_us": 144,
+        "request_bytes": 0,
+        "response_bytes": 42246,
+        "tables": {
+          "sync_state": {
+            "read_rows": 1,
+            "write_rows": 0,
+            "write_bytes": 0
+          },
+          "by_version(index)": {
+            "read_rows": 101,
+            "write_rows": 0,
+            "write_bytes": 0
+          }
+        }
+      }
+    },
+    "index_without_cover": {
+      "push_10": {
+        "op": "push_10",
+        "n": 5,
+        "note": "",
+        "latency_p50_ms": 22.6,
+        "latency_p95_ms": 25.6,
+        "latency_max_ms": 25.6,
+        "app_p50_ms": 20.0,
+        "ydb_calls": 2,
+        "tx_conflicts": 0,
+        "ru_header": 2,
+        "ru_formula": 63,
+        "read_rows": 1,
+        "write_rows": 31,
+        "write_bytes": 6500,
+        "cpu_us": 1278,
+        "request_bytes": 4872,
+        "response_bytes": 1513,
+        "tables": {
+          "sync_state": {
+            "read_rows": 1,
+            "write_rows": 1,
+            "write_bytes": 60
+          },
+          "sync_mutations": {
+            "read_rows": 0,
+            "write_rows": 10,
+            "write_bytes": 2190
+          },
+          "sync_records": {
+            "read_rows": 0,
+            "write_rows": 10,
+            "write_bytes": 3380
+          },
+          "by_version(index)": {
+            "read_rows": 0,
+            "write_rows": 10,
+            "write_bytes": 870
+          }
+        }
+      },
+      "pull_100": {
+        "op": "pull_100",
+        "n": 5,
+        "note": "",
+        "latency_p50_ms": 6.1,
+        "latency_p95_ms": 55.0,
+        "latency_max_ms": 55.0,
+        "app_p50_ms": 4.9,
+        "ydb_calls": 1,
+        "tx_conflicts": 0,
+        "ru_header": 203,
+        "ru_formula": 203,
+        "read_rows": 203,
+        "write_rows": 0,
+        "write_bytes": 0,
+        "cpu_us": 417,
+        "request_bytes": 0,
+        "response_bytes": 42246,
+        "tables": {
+          "sync_state": {
+            "read_rows": 1,
+            "write_rows": 0,
+            "write_bytes": 0
+          },
+          "sync_records": {
+            "read_rows": 101,
+            "write_rows": 0,
+            "write_bytes": 0
+          },
+          "by_version(index)": {
+            "read_rows": 101,
+            "write_rows": 0,
+            "write_bytes": 0
+          }
+        }
+      }
+    },
+    "lookup_tuple_in": {
+      "push_10": {
+        "op": "push_10",
+        "n": 5,
+        "note": "",
+        "latency_p50_ms": 8.8,
+        "latency_p95_ms": 9.1,
+        "latency_max_ms": 9.1,
+        "app_p50_ms": 7.9,
+        "ydb_calls": 2,
+        "tx_conflicts": 0,
+        "ru_header": 2,
+        "ru_formula": 63,
+        "read_rows": 1,
+        "write_rows": 31,
+        "write_bytes": 9010,
+        "cpu_us": 430,
+        "request_bytes": 4872,
+        "response_bytes": 1513,
+        "tables": {
+          "sync_state": {
+            "read_rows": 1,
+            "write_rows": 1,
+            "write_bytes": 60
+          },
+          "sync_mutations": {
+            "read_rows": 0,
+            "write_rows": 10,
+            "write_bytes": 2190
+          },
+          "sync_records": {
+            "read_rows": 0,
+            "write_rows": 10,
+            "write_bytes": 3380
+          },
+          "by_version(index)": {
+            "read_rows": 0,
+            "write_rows": 10,
+            "write_bytes": 3380
+          }
+        }
+      },
+      "pull_100": {
+        "op": "pull_100",
+        "n": 5,
+        "note": "",
+        "latency_p50_ms": 4.9,
+        "latency_p95_ms": 5.2,
+        "latency_max_ms": 5.2,
+        "app_p50_ms": 3.9,
+        "ydb_calls": 1,
+        "tx_conflicts": 0,
+        "ru_header": 102,
+        "ru_formula": 102,
+        "read_rows": 102,
+        "write_rows": 0,
+        "write_bytes": 0,
+        "cpu_us": 129,
+        "request_bytes": 0,
+        "response_bytes": 42246,
+        "tables": {
+          "sync_state": {
+            "read_rows": 1,
+            "write_rows": 0,
+            "write_bytes": 0
+          },
+          "by_version(index)": {
+            "read_rows": 101,
+            "write_rows": 0,
+            "write_bytes": 0
+          }
+        }
+      }
+    },
+    "storage_index_without_cover": {
+      "sync_records": {
+        "bytes": 1362176,
+        "rows": 2050
+      },
+      "sync_records/by_version/indexImplTable": {
+        "bytes": 415072,
+        "rows": 2050
+      },
+      "sync_state": {
+        "bytes": 1504,
+        "rows": 1
+      },
+      "sync_mutations": {
+        "bytes": 787592,
+        "rows": 2050
+      }
+    }
+  },
+  "storage": {
+    "sync_records": {
+      "bytes": 10481818,
+      "rows": 23239
+    },
+    "sync_records/by_version/indexImplTable": {
+      "bytes": 10483170,
+      "rows": 23299
+    },
+    "sync_state": {
+      "bytes": 20055,
+      "rows": 16
+    },
+    "sync_mutations": {
+      "bytes": 6545185,
+      "rows": 21281
+    }
+  }
+}

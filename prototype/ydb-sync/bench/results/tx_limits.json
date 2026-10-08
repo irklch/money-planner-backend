@@ -1,0 +1,37 @@
+[
+  {
+    "mutations": 500,
+    "payload_bytes": 555000,
+    "ok": true,
+    "ru": 2,
+    "seconds": 0.06
+  },
+  {
+    "mutations": 2000,
+    "payload_bytes": 2220000,
+    "ok": true,
+    "ru": 5,
+    "seconds": 0.19
+  },
+  {
+    "mutations": 5000,
+    "payload_bytes": 5550000,
+    "ok": true,
+    "ru": 13,
+    "seconds": 0.42
+  },
+  {
+    "mutations": 10000,
+    "payload_bytes": 11100000,
+    "ok": true,
+    "ru": 28,
+    "seconds": 0.88
+  },
+  {
+    "mutations": 20000,
+    "payload_bytes": 22200000,
+    "ok": true,
+    "ru": 9,
+    "seconds": 1.74
+  }
+]

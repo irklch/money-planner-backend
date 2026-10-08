@@ -1,0 +1,29 @@
+# Спецификация Yandex API Gateway для облачного эксперимента.
+# ${CONTAINER_ID} и ${GATEWAY_SA_ID} подставляет cloud/deploy.sh (envsubst).
+# Наружу опубликованы только 3 маршрута. Контейнер приватный: вызвать его может только сервисный
+# аккаунт шлюза (роль serverless.containers.invoker). Push/pull и подробный /health требуют JWT.
+openapi: 3.0.0
+info:
+  title: money-planner-sync-proto
+  version: 0.1.0
+x-yc-apigateway:
+  service_account_id: ${GATEWAY_SA_ID}
+paths:
+  /health:
+    get:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${CONTAINER_ID}
+  /sync/push:
+    post:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${CONTAINER_ID}
+  /sync/pull:
+    get:
+      parameters:
+        - { name: cursor, in: query, required: false, schema: { type: integer, minimum: 0 } }
+        - { name: limit, in: query, required: false, schema: { type: integer, minimum: 1, maximum: 500 } }
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${CONTAINER_ID}
