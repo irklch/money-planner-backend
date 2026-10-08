@@ -10,9 +10,11 @@ from syncproto import hlc
 from syncproto.models import Mutation, StoredRecord
 from syncproto.resolve import MAX_FUTURE, STRATEGIES
 
+# Фиксированное «сейчас» сервера для детерминированных проверок.
 NOW = dt.datetime(2026, 10, 8, 12, 0, tzinfo=dt.UTC)
 
 
+# Текущая запись на сервере с заданной версией, временем и устройством.
 def rec(version: int, ts: dt.datetime, device: str = "d1", deleted: bool = False, h: str | None = None):
     return StoredRecord(
         "expense",
@@ -30,6 +32,7 @@ def rec(version: int, ts: dt.datetime, device: str = "d1", deleted: bool = False
     )
 
 
+# Входящая мутация с заданным временем, базовой версией и HLC.
 def mut(ts: dt.datetime, base: int = 0, op: str = "upsert", h: str | None = None):
     return Mutation(
         "m1",
@@ -46,9 +49,11 @@ def mut(ts: dt.datetime, base: int = 0, op: str = "upsert", h: str | None = None
     )
 
 
+# Стратегия варианта B.
 V = STRATEGIES["version"]
 
 
+# B: правка на актуальной версии применяется, даже если часы устройства отстают на год.
 def test_version_base_match_applies_even_with_clock_far_behind():
     cur = rec(5, NOW)
     d = V.decide(cur, mut(NOW - dt.timedelta(days=365), base=5), "d2", NOW, 5)
@@ -56,6 +61,7 @@ def test_version_base_match_applies_even_with_clock_far_behind():
     assert d.order_ts == NOW  # монотонная метка не откатывается назад
 
 
+# B: конкурентный конфликт решают время, затем устройство.
 def test_version_conflict_decided_by_time_then_device():
     cur = rec(5, NOW)
     assert V.decide(cur, mut(NOW + dt.timedelta(seconds=1), base=4), "d2", NOW, 4).apply
@@ -79,6 +85,7 @@ def test_same_device_tie_is_applied_same_mutation_is_noop(name):
     assert s.decide(same, mut(far), "d1", NOW, 0).status == "noop"
 
 
+# Время из будущего обрезается до now + 5 мин (и в B, и в HLC).
 def test_future_clock_is_clamped():
     cur = rec(5, NOW + dt.timedelta(minutes=4))
     d = V.decide(cur, mut(NOW + dt.timedelta(days=1), base=4), "d2", NOW, 4)
@@ -88,6 +95,7 @@ def test_future_clock_is_clamped():
     )
 
 
+# Delete wins: удаление проходит, удалённую запись нельзя изменить, повторное удаление — noop.
 @pytest.mark.parametrize("name", ["version", "hlc_dw"])
 def test_delete_wins_and_tombstone_is_final(name):
     s = STRATEGIES[name]

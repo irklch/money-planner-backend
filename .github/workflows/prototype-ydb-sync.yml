@@ -1,6 +1,7 @@
 name: Prototype YDB sync
 
 # Изолированный прототип (prototype/ydb-sync). Основной CI (ci.yml) не меняется.
+# Запуск только на PR, затрагивающие прототип, и вручную.
 on:
   pull_request:
     paths: ["prototype/ydb-sync/**", ".github/workflows/prototype-ydb-sync.yml"]
@@ -9,6 +10,7 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    # Локальная YDB как сервис job; hostname localhost — чтобы discovery вернул доступный адрес.
     services:
       ydb:
         image: ydbplatform/local-ydb:latest
@@ -20,6 +22,7 @@ jobs:
           --hostname localhost
           --health-cmd "/ydb -e grpc://localhost:2136 -d /local scheme ls"
           --health-interval 3s --health-retries 60
+    # Все команды — из папки прототипа.
     defaults:
       run:
         working-directory: prototype/ydb-sync
@@ -28,6 +31,7 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
+      # Установка прототипа с dev-зависимостями, линтер, все тесты (включая медленные) и сборка Docker-образа.
       - run: pip install --upgrade "pip>=25.1" && pip install . --group dev
       - run: ruff check . && ruff format --check .
       - name: Tests (scenarios, simulation, YDB properties incl. TTL and tx limits)

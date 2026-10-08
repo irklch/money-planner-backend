@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+# asyncio.Lock — сериализация push одного пользователя (как OCC-транзакция в YDB).
 import asyncio
 from collections import defaultdict
 from collections.abc import Callable
@@ -16,6 +17,7 @@ from .engine import OpStats, PullPage, PushSnapshot, ResyncRequired
 from .models import Mutation, PushPlan, StoredRecord
 
 
+# Данные одного пользователя: счётчик версий, горизонт tombstones, записи, журнал мутаций.
 @dataclass
 class _User:
     last_version: int = 0
@@ -25,15 +27,18 @@ class _User:
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
 
+# Все пользователи; новый создаётся при первом обращении.
 class MemoryStore:
     def __init__(self) -> None:
         self.users: dict[str, _User] = defaultdict(_User)
 
+    # Push под замком пользователя: снимок → план → применение плана.
     async def push(
         self, user_id: str, mutations: list[Mutation], planner: Callable[[PushSnapshot], PushPlan]
     ) -> tuple[PushPlan, OpStats]:
         u = self.users[user_id]
         async with u.lock:
+            # Снимок содержит только то же, что читает YDB-хранилище: записи и журнал по ключам этой пачки.
             keys = {m.key for m in mutations}
             snap = PushSnapshot(
                 last_version=u.last_version,
@@ -48,8 +53,10 @@ class MemoryStore:
             u.last_version = plan.last_version
         return plan, OpStats()
 
+    # Pull: записи с версией больше курсора, по возрастанию версии, не больше limit.
     async def pull(self, user_id: str, cursor: int, limit: int) -> tuple[PullPage, OpStats]:
         u = self.users[user_id]
+        # Курсор старше горизонта очистки — клиенту нужна полная перезагрузка (410).
         if cursor and cursor < u.tombstone_horizon:
             raise ResyncRequired()
         rows = sorted((r for r in u.records.values() if r.version > cursor), key=lambda r: r.version)
@@ -57,5 +64,6 @@ class MemoryStore:
         next_cursor = page[-1].version if page else cursor
         return PullPage(page, next_cursor, len(rows) > limit), OpStats()
 
+    # Всё серверное состояние пользователя — для проверок в тестах.
     def server_state(self, user_id: str) -> dict[tuple[str, str], StoredRecord]:
         return dict(self.users[user_id].records)

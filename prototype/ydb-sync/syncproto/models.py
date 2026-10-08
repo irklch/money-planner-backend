@@ -4,8 +4,11 @@
 на тысячах историй работала быстро.
 """
 
+# Модуль используется везде: API (pydantic-схемы), движок и хранилища (dataclass-ы), клиент (формат JSON).
+
 from __future__ import annotations
 
+# dt — даты; hashlib/json — отпечаток мутации; uuid — идентификаторы; Decimal — суммы.
 import datetime as dt
 import hashlib
 import json
@@ -14,17 +17,21 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Annotated, Any, Literal
 
+# Pydantic: схемы и проверка входящих запросов; to_camel — имена полей JSON в camelCase.
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator, model_validator
 from pydantic.alias_generators import to_camel
 
+# Синхронизируемые сущности прототипа и операции над ними (удаление — это tombstone, а не DELETE).
 EntityType = Literal["expense", "category"]
 Op = Literal["upsert", "delete"]
 
+# Лимиты протокола: мутаций в одном push, записей на странице pull, байт в теле push.
 MAX_MUTATIONS_PER_PUSH = 500
 MAX_PULL_LIMIT = 500
 MAX_PUSH_BODY_BYTES = 1_048_576
 
 
+# Базовая схема API: camelCase в JSON, лишние поля запрещены (нельзя подсунуть, например, userId).
 class _Api(BaseModel):
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True, extra="forbid")
 
@@ -32,6 +39,7 @@ class _Api(BaseModel):
 # --- payload сущностей (сервер проверяет форму, но не бизнес-логику) ---------------------------
 
 
+# Форма расхода: сумма > 0 с 2 знаками, категория, дата, комментарий до 500 символов.
 class ExpensePayload(_Api):
     amount: Annotated[Decimal, Field(gt=0, max_digits=14, decimal_places=2)]
     category_id: uuid.UUID
@@ -39,16 +47,21 @@ class ExpensePayload(_Api):
     comment: Annotated[str, StringConstraints(max_length=500)] | None = None
 
 
+# Форма категории: название 1–64 символа, эмодзи необязателен.
 class CategoryPayload(_Api):
     name: Annotated[str, StringConstraints(min_length=1, max_length=64, strip_whitespace=True)]
     emoji: Annotated[str, StringConstraints(max_length=16)] | None = None
 
 
+# Какой схемой проверять payload для каждого типа сущности.
 PAYLOAD_MODELS: dict[str, type[_Api]] = {"expense": ExpensePayload, "category": CategoryPayload}
 
 
+# Одна мутация (изменение записи) в запросе push.
 class MutationIn(_Api):
+    # Уникальный id мутации — ключ идемпотентности: повтор с тем же id вернёт тот же результат.
     mutation_id: uuid.UUID
+    # Тип и id записи; id генерирует клиент (UUID), поэтому повтор не может создать дубль.
     entity_type: EntityType
     entity_id: uuid.UUID
     op: Op
@@ -56,12 +69,16 @@ class MutationIn(_Api):
     base_version: Annotated[int, Field(ge=0)] = 0
     # Вариант A: HLC клиента. Формат "<ms:15>.<counter:6>".
     hlc: Annotated[str, StringConstraints(pattern=r"^\d{15}\.\d{6}$")] | None = None
+    # Время создания записи и время изменения (часы клиента; в B — только для конкурентных конфликтов).
     created_at: dt.datetime
     updated_at: dt.datetime
+    # Заполняется только для op=delete.
     deleted_at: dt.datetime | None = None
+    # Версия формата payload (пока одна).
     schema_version: Annotated[int, Field(ge=1, le=1)] = 1
     payload: dict[str, Any] | None = None
 
+    # Все времена обязаны быть с часовым поясом — иначе непонятно, какое это время.
     @field_validator("created_at", "updated_at", "deleted_at")
     @classmethod
     def _aware(cls, v: dt.datetime | None) -> dt.datetime | None:
@@ -69,6 +86,7 @@ class MutationIn(_Api):
             raise ValueError("timestamp must include timezone")
         return v
 
+    # Согласованность полей: delete — с deletedAt и без payload; upsert — наоборот.
     @model_validator(mode="after")
     def _shape(self) -> MutationIn:
         if self.op == "delete":
@@ -83,14 +101,18 @@ class MutationIn(_Api):
         return self
 
 
+# Тело POST /sync/push. userId в теле нет — он берётся из токена.
 class PushRequest(_Api):
+    # Имя устройства: короткое, только безопасные символы.
     device_id: Annotated[str, StringConstraints(min_length=1, max_length=64, pattern=r"^[A-Za-z0-9._-]+$")]
     mutations: Annotated[list[MutationIn], Field(min_length=1, max_length=MAX_MUTATIONS_PER_PUSH)]
 
 
+# Запись в ответах pull и push — так её видит клиент.
 class RecordOut(_Api):
     entity_type: EntityType
     entity_id: str
+    # Серверная версия — она же курсор для pull.
     version: int
     created_at: dt.datetime
     updated_at: dt.datetime
@@ -101,25 +123,32 @@ class RecordOut(_Api):
     payload: dict[str, Any] | None
 
 
+# Итог мутации: applied — применена; rejected — отклонена (с причиной); noop — ничего не изменилось.
 Status = Literal["applied", "rejected", "noop"]
+# Причины отказа: конфликт, запись удалена, устаревшая правка (A), повтор mutationId с другим телом.
 Reason = Literal["conflict", "deleted", "stale", "mutation_id_reused"]
 
 
+# Результат одной мутации в ответе push.
 class MutationResultOut(_Api):
     mutation_id: str
     status: Status
     reason: Reason | None = None
+    # conflict — сервер обнаружил конкурентную правку (даже если мутация в итоге применена).
     conflict: bool = False
     version: int | None = None
+    # replayed — это повтор уже обработанной мутации, ответ взят из журнала.
     replayed: bool = False
     # Актуальная серверная запись, если она отличается от того, что применил клиент.
     record: RecordOut | None = None
 
 
+# Ответ push: результаты в том же порядке, что мутации в запросе.
 class PushResponse(_Api):
     results: list[MutationResultOut]
 
 
+# Ответ pull: страница записей, курсор для следующего запроса и признак, есть ли ещё.
 class PullResponse(_Api):
     records: list[RecordOut]
     next_cursor: int
@@ -129,6 +158,7 @@ class PullResponse(_Api):
 # --- внутреннее представление -----------------------------------------------------------------
 
 
+# Мутация внутри движка — без валидации, быстро (используется и в симуляции).
 @dataclass(frozen=True, slots=True)
 class Mutation:
     mutation_id: str
@@ -143,10 +173,12 @@ class Mutation:
     schema_version: int
     payload: dict[str, Any] | None
 
+    # Ключ записи (тип, id).
     @property
     def key(self) -> tuple[str, str]:
         return (self.entity_type, self.entity_id)
 
+    # Отпечаток содержимого мутации: повтор того же mutationId с другим телом — ошибка клиента.
     def request_hash(self, device_id: str) -> str:
         body = {
             "d": device_id,
@@ -161,9 +193,11 @@ class Mutation:
             "s": self.schema_version,
             "p": self.payload,
         }
+        # Канонический JSON: одинаковые данные — одинаковая строка.
         raw = json.dumps(body, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
         return hashlib.sha256(raw.encode()).hexdigest()
 
+    # Из проверенной схемы API во внутреннее представление (все времена — в UTC).
     @classmethod
     def from_api(cls, m: MutationIn) -> Mutation:
         return cls(
@@ -181,10 +215,12 @@ class Mutation:
         )
 
 
+# Запись так, как она хранится на сервере (строка sync_records).
 @dataclass(frozen=True, slots=True)
 class StoredRecord:
     entity_type: str
     entity_id: str
+    # Версия последнего изменения (монотонная внутри пользователя).
     version: int
     created_at: dt.datetime
     updated_at: dt.datetime
@@ -193,6 +229,7 @@ class StoredRecord:
     hlc: str | None
     # Вариант B: монотонная «логическая» метка записи = max(updatedAt клиента, order_ts основы).
     order_ts: dt.datetime
+    # Устройство, сделавшее последнее изменение; mutation_id — каким изменением получено состояние.
     device_id: str
     schema_version: int
     payload: dict[str, Any] | None
@@ -202,10 +239,12 @@ class StoredRecord:
     def key(self) -> tuple[str, str]:
         return (self.entity_type, self.entity_id)
 
+    # Запись удалена (tombstone).
     @property
     def deleted(self) -> bool:
         return self.deleted_at is not None
 
+    # В формат ответа API.
     def to_api(self) -> RecordOut:
         return RecordOut(
             entity_type=self.entity_type,  # type: ignore[arg-type]
@@ -221,6 +260,7 @@ class StoredRecord:
         )
 
 
+# Результат обработки одной мутации внутри движка.
 @dataclass(slots=True)
 class MutationResult:
     mutation_id: str
@@ -229,6 +269,7 @@ class MutationResult:
     conflict: bool = False
     version: int | None = None
     replayed: bool = False
+    # Актуальная серверная запись — прикладывается к ответу, если клиенту нужно её применить.
     record: StoredRecord | None = None
     # Служебное: на какой версии основано применённое изменение (для перебазирования в пачке).
     base_version: int | None = None
@@ -243,6 +284,7 @@ class MutationResult:
             "base": self.base_version,
         }
 
+    # Восстановить результат из журнала sync_mutations (при повторе).
     @classmethod
     def from_stored(cls, mutation_id: str, data: dict[str, Any]) -> MutationResult:
         return cls(
@@ -255,6 +297,7 @@ class MutationResult:
             replayed=True,
         )
 
+    # В формат ответа API.
     def to_api(self) -> MutationResultOut:
         return MutationResultOut(
             mutation_id=self.mutation_id,
@@ -278,9 +321,11 @@ class PushPlan:
     changed: bool = False
 
 
+# Время в UTC.
 def _utc(v: dt.datetime) -> dt.datetime:
     return v.astimezone(dt.UTC)
 
 
+# Время в ISO-строке UTC (для отпечатка мутации).
 def _iso(v: dt.datetime | None) -> str | None:
     return v.astimezone(dt.UTC).isoformat() if v else None

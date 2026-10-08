@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+# Клиент (client.py) работает с любым транспортом через интерфейс Transport: push(body) и pull(cursor, limit).
 import json
 from dataclasses import dataclass, field
 from typing import Any, Protocol
@@ -22,6 +23,7 @@ class TransportError(Exception):
     """Сеть недоступна или ответ потерян. Клиент не знает, обработал ли сервер запрос."""
 
 
+# Сервер ответил 410: курсор устарел, нужна полная перезагрузка с cursor = 0.
 class ResyncRequiredError(Exception):
     pass
 
@@ -31,6 +33,7 @@ class Transport(Protocol):
     async def pull(self, cursor: int, limit: int) -> dict[str, Any]: ...
 
 
+# Счётчики трафика HTTP-транспорта (запросы, байты, заголовки последнего ответа).
 @dataclass
 class TrafficStats:
     requests: int = 0
@@ -39,12 +42,14 @@ class TrafficStats:
     last_headers: dict[str, str] = field(default_factory=dict)
 
 
+# HTTP-транспорт: httpx-клиент (in-process ASGI или реальный URL) + токен пользователя.
 class HttpTransport:
     def __init__(self, client: httpx.AsyncClient, token: str) -> None:
         self.client = client
         self.headers = {"Authorization": f"Bearer {token}"}
         self.stats = TrafficStats()
 
+    # Отправить запрос; сеть и 5xx → TransportError (клиент повторит позже), 410 → ResyncRequiredError.
     async def _send(self, method: str, url: str, **kw: Any) -> dict[str, Any]:
         headers = {**self.headers, **kw.pop("headers", {})}
         try:
@@ -62,6 +67,7 @@ class HttpTransport:
         r.raise_for_status()
         return r.json()
 
+    # Тело push — компактный JSON с кириллицей без экранирования.
     async def push(self, body: dict[str, Any]) -> dict[str, Any]:
         content = json.dumps(body, separators=(",", ":"), ensure_ascii=False).encode()
         return await self._send(
@@ -72,6 +78,8 @@ class HttpTransport:
         return await self._send("GET", "/sync/pull", params={"cursor": cursor, "limit": limit})
 
 
+# Прямой транспорт: вызывает движок напрямую, но через те же схемы валидации и сериализации,
+# поэтому поведение совпадает с HTTP, а работает в десятки раз быстрее (для симуляции).
 class DirectTransport:
     def __init__(self, engine: SyncEngine, user_id: str) -> None:
         self.engine = engine
@@ -94,6 +102,8 @@ class DirectTransport:
         ).model_dump(mode="json", by_alias=True)
 
 
+# Обёртка, умеющая ломать связь: офлайн, потеря ответа после того, как сервер всё сохранил,
+# и обрыв pull после N успешных страниц.
 class FaultyTransport:
     def __init__(self, inner: Transport) -> None:
         self.inner = inner
@@ -102,6 +112,7 @@ class FaultyTransport:
         self.fail_pull_after_pages: int | None = None
         self._pages = 0
 
+    # Через `pages` успешных страниц следующий pull оборвётся (один раз).
     def fail_pull_after(self, pages: int) -> None:
         self.fail_pull_after_pages = pages
         self._pages = 0
@@ -109,6 +120,7 @@ class FaultyTransport:
     async def push(self, body: dict[str, Any]) -> dict[str, Any]:
         if self.offline:
             raise TransportError("offline")
+        # Запрос реально уходит на сервер и обрабатывается; ответ «теряется» по пути назад.
         resp = await self.inner.push(body)
         if self.drop_push_responses > 0:
             self.drop_push_responses -= 1

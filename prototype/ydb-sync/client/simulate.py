@@ -19,6 +19,8 @@
 from __future__ import annotations
 
 import argparse
+
+# random — воспроизводимая случайность (seed); Counter — подсчёт нарушений по видам.
 import asyncio
 import datetime as dt
 import random
@@ -27,16 +29,20 @@ from collections import Counter
 from dataclasses import dataclass, field
 from typing import Any
 
+# Тот же движок и клиент, что и в тестах, но хранилище в памяти и прямой транспорт.
 from syncproto.engine import Store, SyncEngine
 from syncproto.store_memory import MemoryStore
 
 from .client import SyncClient
 from .transport import DirectTransport, FaultyTransport, TransportError
 
+# Возможные сдвиги часов устройства, секунды: верные (чаще всего), ±20 с, ±5 мин, ±2 ч, ±сутки.
 SKEWS = [0, 0, 0, 20, -20, 300, -300, 7200, -7200, 86400, -86400]
+# Начало виртуального времени симуляции.
 T0 = dt.datetime(2026, 10, 8, 9, 0, tzinfo=dt.UTC)
 
 
+# Итоги одной истории.
 @dataclass
 class SimResult:
     seed: int
@@ -50,6 +56,7 @@ class SimResult:
     final: dict[Any, Any] = field(default_factory=dict)
 
 
+# Виртуальное «настоящее» время: двигается шагами, сервер видит его без сдвига.
 class _World:
     def __init__(self) -> None:
         self.t = T0
@@ -58,6 +65,7 @@ class _World:
         return self.t
 
 
+# Одна история: seed задаёт всё (устройства, сдвиги часов, действия, сбои) — её можно воспроизвести.
 async def run_history(
     seed: int, strategy: str, store: Store | None = None, user_id: str | None = None, steps: int = 160
 ) -> SimResult:
@@ -67,9 +75,11 @@ async def run_history(
     user_id = user_id or str(uuid.UUID(int=seed, version=4))
     engine = SyncEngine(store, strategy, clock=world.server_now)
 
+    # Детерминированные UUID из того же генератора — одинаковые id при повторе с тем же seed.
     def ids() -> str:
         return str(uuid.UUID(int=rnd.getrandbits(128), version=4))
 
+    # 2–4 устройства с разными часами и размерами пачек push/pull.
     n = rnd.randint(2, 4)
     devices: list[SyncClient] = []
     for i in range(n):
@@ -87,6 +97,8 @@ async def run_history(
             )
         )
 
+    # Происхождение правок: каждая правка пишет в payload уникальную метку wN; parent — на какой метке
+    # она основана (что устройство видело локально), true_time — реальное время, entity_of — какая запись.
     res = SimResult(seed, strategy)
     parent: dict[str, str | None] = {}  # метка правки → метка правки, на которой она основана
     true_time: dict[str, dt.datetime] = {}
@@ -98,6 +110,7 @@ async def run_history(
         tag_n += 1
         return f"w{tag_n}"
 
+    # Метка, которую устройство сейчас видит у записи (из comment расхода или name категории).
     def local_tag(c: SyncClient, et: str, eid: str) -> str | None:
         p = c.visible(et).get(eid)
         if p is None:
@@ -105,12 +118,15 @@ async def run_history(
         return p.get("comment") if et == "expense" else p.get("name")
 
     cat_ids: list[str] = []
+    # Основной цикл: на каждом шаге случайное устройство делает случайное действие.
     for _ in range(steps):
         world.t += dt.timedelta(seconds=rnd.choice([0, 0.001, 1, 5, 30, 120]))
         c = rnd.choice(devices)
         tr: FaultyTransport = c.transport  # type: ignore[assignment]
         roll = rnd.random()
         exp = list(c.visible("expense"))
+        # ~12 % — новая категория, ~23 % — новый расход, ~27 % — правка расхода, ~6 % — правка категории,
+        # ~6 % — удаление, ~6 % — переключение офлайн, остальное — sync со случайными сбоями сети.
         if roll < 0.12 or not cat_ids:
             w = tag()
             cat_ids.append(c.create_category(w))
@@ -160,6 +176,7 @@ async def run_history(
             if not r.ok:
                 raise TransportError("sync failed in quiescence")
 
+    # Итоговое состояние сервера и проверки инвариантов.
     pull = await _server_records(engine, user_id)
     server = {k: (v["payload"], v["deletedAt"] is not None) for k, v in pull.items()}
     res.final = server
@@ -176,6 +193,7 @@ async def run_history(
             if not server.get(key, (None, False))[1]:
                 res.violations["resurrected"] += 1
 
+    # Предки каждой правки (транзитивно) — для поиска потерянных причинно-поздних правок.
     ancestors: dict[str, set[str]] = {}
 
     def anc(w: str) -> set[str]:
@@ -184,9 +202,11 @@ async def run_history(
             ancestors[w] = set() if p is None else {p} | anc(p)
         return ancestors[w]
 
+    # Правки, сгруппированные по записям.
     by_entity: dict[tuple[str, str], list[str]] = {}
     for w, key in entity_of.items():
         by_entity.setdefault(key, []).append(w)
+    # Для каждой живой записи на сервере: итоговая метка не должна быть предком другой правки этой записи.
     for key, (payload, deleted) in server.items():
         if deleted or payload is None:
             continue
@@ -200,11 +220,13 @@ async def run_history(
         leaves = [w for w in writes if not any(w in anc(x) for x in writes)]
         if len(leaves) > 1 and max(leaves, key=lambda w: true_time[w]) != final:
             res.violations["skew_misorder"] += 1
+    # Закрыть in-memory SQLite устройств.
     for c in devices:
         c.close()
     return res
 
 
+# Прочитать всё серверное состояние пользователя через pull страницами (как новый телефон).
 async def _server_records(engine: SyncEngine, user_id: str) -> dict[Any, dict[str, Any]]:
     out: dict[Any, dict[str, Any]] = {}
     cursor = 0
@@ -235,6 +257,7 @@ class TrackingMemoryStore(MemoryStore):
         return self._deleted.get(user_id, set())
 
 
+# Прогнать одинаковые seed-ы на каждой стратегии и свести нарушения в таблицу.
 async def compare(seeds: range, strategies: list[str], steps: int = 160) -> dict[str, dict[str, Any]]:
     table: dict[str, dict[str, Any]] = {}
     for s in strategies:
@@ -257,6 +280,7 @@ async def compare(seeds: range, strategies: list[str], steps: int = 160) -> dict
     return table
 
 
+# CLI: python -m client.simulate --seeds 1000 [--steps N] [--strategies a,b].
 def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--seeds", type=int, default=300)

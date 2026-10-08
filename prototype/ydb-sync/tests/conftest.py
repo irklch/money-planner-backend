@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+# Запуск: docker compose up -d ydb && .venv/bin/pytest -q (локальная YDB на 127.0.0.1:2136).
 import datetime as dt
 import os
 import secrets
@@ -24,16 +25,20 @@ from syncproto.api import create_app
 from syncproto.config import Settings
 from syncproto.store_ydb import YdbStore, open_driver
 
+# Фиксированные тестовые пользователи: A и B — основные, PERM_USERS — для перебора порядков в тесте 13.
 USER_A = "00000000-0000-4000-8000-0000000000a1"
 USER_B = "00000000-0000-4000-8000-0000000000b1"
 PERM_USERS = [f"00000000-0000-4000-8000-00000000c{i:03d}" for i in range(8)]
 ALL_TEST_USERS = [USER_A, USER_B, *PERM_USERS]
 
+# Отдельный префикс таблиц, чтобы тесты не трогали данные приложения и benchmark.
 TEST_PREFIX = os.environ.get("YDB_TEST_PREFIX", "ydbsync_test")
 SECRET = secrets.token_urlsafe(48)
+# Обязательные сценарии гоняются на двух стратегиях: B (выбранный вариант) и A с delete wins.
 SCENARIO_STRATEGIES = ["version", "hlc_dw"]
 
 
+# Настройки тестового приложения для стратегии.
 def make_settings(strategy: str) -> Settings:
     return Settings(
         env="test",
@@ -45,6 +50,7 @@ def make_settings(strategy: str) -> Settings:
     )
 
 
+# Токен пользователя, подписанный тестовым секретом.
 def token(user_id: str) -> str:
     return auth.issue_test_token(SECRET, user_id, make_settings("version").jwt_audience)
 
@@ -62,6 +68,7 @@ class SkewClock:
         self.offset += dt.timedelta(seconds=seconds)
 
 
+# Один раз на запуск: подключиться к YDB и пересоздать тестовые таблицы.
 @pytest.fixture(scope="session")
 async def ydb_pool() -> AsyncIterator[ydb.aio.QuerySessionPool]:
     s = make_settings("version")
@@ -76,6 +83,7 @@ async def ydb_pool() -> AsyncIterator[ydb.aio.QuerySessionPool]:
     await driver.stop()
 
 
+# Перед каждым тестом — чистые данные тестовых пользователей.
 @pytest.fixture
 async def store(ydb_pool: ydb.aio.QuerySessionPool) -> YdbStore:
     st = YdbStore(ydb_pool, TEST_PREFIX)
@@ -83,11 +91,13 @@ async def store(ydb_pool: ydb.aio.QuerySessionPool) -> YdbStore:
     return st
 
 
+# Параметр стратегии для сценарных тестов.
 @pytest.fixture(params=SCENARIO_STRATEGIES)
 def strategy(request: pytest.FixtureRequest) -> str:
     return request.param
 
 
+# HTTP-клиент к приложению в памяти (ASGI), без сети.
 @pytest.fixture
 async def http(store: YdbStore, strategy: str) -> AsyncIterator[httpx.AsyncClient]:
     app = create_app(make_settings(strategy), store=store)
@@ -106,6 +116,7 @@ def device(tmp_path: Path, http: httpx.AsyncClient) -> Callable[..., SyncClient]
     return make
 
 
+# Серверное состояние в формате snapshot() клиента: (тип, id) → (payload | None, удалена).
 def server_view(state: dict) -> dict:
     return {k: (None if r.deleted else r.payload, r.deleted) for k, r in state.items()}
 

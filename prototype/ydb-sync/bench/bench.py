@@ -33,14 +33,17 @@ import httpx
 
 from syncproto import auth
 
+# Куда сохраняются результаты; фиксированные синтетические пользователи по ролям benchmark.
 RESULTS = Path(__file__).resolve().parent / "results"
 BENCH_USERS = {
     name: f"00000000-0000-4000-8000-0000000b{i:04d}"
     for i, name in enumerate(["writer", "reader", "initial", "replay", "contention", "small", "variant"])
 }
+# Категория для синтетических расходов (её существование сервер не проверяет).
 CATEGORY_ID = "00000000-0000-4000-8000-00000000ca7e"
 
 
+# Минимальный HTTP-клиент benchmark: отправляет запрос и возвращает (JSON, измерения).
 class Client:
     def __init__(self, http: httpx.AsyncClient, token: str, device: str) -> None:
         self.http = http
@@ -65,6 +68,7 @@ class Client:
         return r.json(), _measure(r, ms, 0)
 
 
+# Измерения одного запроса: latency, время приложения, RU, обращения к YDB, попытки, строки/байты, размеры.
 def _measure(r: httpx.Response, ms: float, req_bytes: int) -> dict[str, Any]:
     st = json.loads(r.headers.get("x-ydb-stats", "{}"))
     return {
@@ -84,6 +88,7 @@ def _measure(r: httpx.Response, ms: float, req_bytes: int) -> dict[str, Any]:
     }
 
 
+# Синтетическая мутация расхода типичного размера.
 def expense(i: int, base: int = 0, entity_id: str | None = None, op: str = "upsert") -> dict[str, Any]:
     now = dt.datetime.now(dt.UTC).isoformat()
     return {
@@ -108,6 +113,7 @@ def expense(i: int, base: int = 0, entity_id: str | None = None, op: str = "upse
     }
 
 
+# Свести серию замеров: перцентили latency и медианы остальных метрик.
 def summarize(name: str, samples: list[dict[str, Any]], note: str = "") -> dict[str, Any]:
     lat = sorted(s["latency_ms"] for s in samples)
 
@@ -140,11 +146,13 @@ def summarize(name: str, samples: list[dict[str, Any]], note: str = "") -> dict[
     }
 
 
+# Весь набор операций из ТЗ на одном экземпляре API.
 async def run(http: httpx.AsyncClient, token_for, n: int, wipe=None) -> dict[str, Any]:
     out: list[dict[str, Any]] = []
     if wipe:
         await wipe(list(BENCH_USERS.values()))
 
+    # Клиент от имени одного из пользователей benchmark.
     def cl(user: str, device: str = "bench-device") -> Client:
         return Client(http, token_for(BENCH_USERS[user]), device)
 
@@ -154,6 +162,7 @@ async def run(http: httpx.AsyncClient, token_for, n: int, wipe=None) -> dict[str
         await w.push([expense(0)])
         await w.pull(0, 1)
 
+    # Повторить операцию `times` раз и сохранить сводку.
     async def repeat(name: str, fn, times: int = n, note: str = "") -> None:
         samples = []
         for i in range(times):
@@ -165,6 +174,7 @@ async def run(http: httpx.AsyncClient, token_for, n: int, wipe=None) -> dict[str
             flush=True,
         )
 
+    # Созданные записи (id и версия) — чтобы затем обновлять и удалять именно их.
     created: list[tuple[str, int]] = []
 
     async def create1(i: int):
@@ -173,6 +183,7 @@ async def run(http: httpx.AsyncClient, token_for, n: int, wipe=None) -> dict[str
         created.append((m["entityId"], resp["results"][0]["version"]))
         return meas
 
+    # Создание, обновление (с правильной baseVersion) и удаление одной записи.
     await repeat("create_1", create1)
 
     async def update1(i: int):
@@ -189,11 +200,13 @@ async def run(http: httpx.AsyncClient, token_for, n: int, wipe=None) -> dict[str
         return meas
 
     await repeat("delete_1", delete1)
+    # Пачки push разного размера.
     for size in (8, 10, 100):
         await repeat(f"push_{size}", lambda i, s=size: _push_new(w, s, i * s))
     await repeat("push_500", lambda i: _push_new(w, 500, i * 500), times=max(3, n // 5))
 
     # Читатель с 3000 записями: pull с курсора, гарантирующего ровно N записей.
+    # Наполняем пользователя 3000 записями (6 × 500), версии будут 1..3000.
     r = cl("reader")
     for b in range(6):
         await _push_new(r, 500, b * 500)
@@ -209,6 +222,7 @@ async def run(http: httpx.AsyncClient, token_for, n: int, wipe=None) -> dict[str
         return _combine([a, b])
 
     await repeat("initial_upload_1000", initial_upload, times=max(3, n // 5), note="2 запроса × 500")
+    # Пользователь с 1000 записями для замера восстановления на новом телефоне.
     ini = cl("initial")
     for b in range(2):
         await _push_new(ini, 500, b * 500)
@@ -232,23 +246,27 @@ async def run(http: httpx.AsyncClient, token_for, n: int, wipe=None) -> dict[str
     return {"operations": out}
 
 
+# Push `size` новых записей.
 async def _push_new(c: Client, size: int, offset: int) -> dict[str, Any]:
     _, meas = await c.push([expense(offset + j) for j in range(size)])
     return meas
 
 
+# Pull одной страницы; число записей — в измерения.
 async def _pull(c: Client, cursor: int, limit: int) -> dict[str, Any]:
     page, meas = await c.pull(cursor, limit)
     meas["records"] = len(page["records"])
     return meas
 
 
+# Повтор уже обработанной пачки: все результаты должны быть replayed.
 async def _replay(c: Client, batch: list[dict[str, Any]]) -> dict[str, Any]:
     resp, meas = await c.push(batch)
     assert all(r["replayed"] for r in resp["results"])
     return meas
 
 
+# Сложить измерения нескольких запросов в одно (initial sync из нескольких запросов).
 def _combine(parts: list[dict[str, Any]]) -> dict[str, Any]:
     out = {
         k: sum(p[k] or 0 for p in parts)
@@ -271,6 +289,7 @@ def _combine(parts: list[dict[str, Any]]) -> dict[str, Any]:
     return out
 
 
+# Конкуренция: K устройств одного пользователя одновременно отправляют push по 8 мутаций.
 async def contention(http: httpx.AsyncClient, token_for, levels=(1, 2, 4, 8, 16, 24)) -> list[dict[str, Any]]:
     """K устройств одного пользователя одновременно отправляют push по 8 мутаций."""
     res = []
@@ -303,6 +322,7 @@ async def contention(http: httpx.AsyncClient, token_for, levels=(1, 2, 4, 8, 16,
     return res
 
 
+# Сравнение вариантов схемы на одинаковых операциях (журнал мутаций, COVER, способ чтения ключей).
 async def variants(pool, prefix: str, token_for) -> dict[str, Any]:
     """Сравнение вариантов схемы на одинаковых операциях (фактические строки/байты)."""
     from syncproto import schema
@@ -341,6 +361,7 @@ async def variants(pool, prefix: str, token_for) -> dict[str, Any]:
     return out
 
 
+# Фактический размер таблиц из системного представления YDB .sys/partition_stats.
 async def storage_per_record(pool, prefix: str) -> dict[str, Any]:
     """Фактический размер данных из .sys/partition_stats (обновляется с задержкой)."""
     q = f"""SELECT Path, SUM(DataSize) AS bytes, SUM(RowCount) AS rows FROM `.sys/partition_stats`
@@ -351,6 +372,7 @@ async def storage_per_record(pool, prefix: str) -> dict[str, Any]:
     }
 
 
+# Локальный прогон: своя схема с префиксом, API в памяти, сохранение JSON с результатами.
 async def main_local(n: int, out_name: str) -> None:
     import ydb
 
@@ -397,6 +419,7 @@ async def main_local(n: int, out_name: str) -> None:
     await driver.stop()
 
 
+# Облачный прогон через API Gateway (только после подтверждения облачного этапа).
 async def main_url(url: str, n: int, out_name: str) -> None:
     """Облачный прогон: токены выпускаются локально секретом из Lockbox (SYNC_JWT_SECRET в env)."""
     secret = os.environ["SYNC_JWT_SECRET"]
@@ -412,6 +435,7 @@ async def main_url(url: str, n: int, out_name: str) -> None:
     (RESULTS / out_name).write_text(json.dumps(result, indent=2, ensure_ascii=False) + "\n")
 
 
+# CLI: --target local | url, -n повторов, --out имя файла результата.
 def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--target", choices=["local", "url"], default="local")

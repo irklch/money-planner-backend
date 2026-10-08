@@ -10,18 +10,22 @@
 
 from __future__ import annotations
 
+# time — время выпуска и срок токена; uuid — проверка формата userId; jwt — PyJWT.
 import time
 import uuid
 
 import jwt
 
+# Издатель токенов прототипа.
 ISSUER = "money-planner-sync-proto"
 
 
+# Токен не прошёл проверку → 401.
 class AuthError(Exception):
     pass
 
 
+# Выпустить тестовый токен для userId (используют тесты, benchmark и облачные замеры).
 def issue_test_token(secret: str, user_id: str, audience: str, ttl_s: int = 3600) -> str:
     uuid.UUID(user_id)  # только UUID
     now = int(time.time())
@@ -29,6 +33,7 @@ def issue_test_token(secret: str, user_id: str, audience: str, ttl_s: int = 3600
     return jwt.encode(claims, secret, algorithm="HS256")
 
 
+# Проверить токен и вернуть userId. Принимается только HS256 с нашим секретом, издателем и аудиторией.
 def verify(token: str, secret: str, audience: str) -> str:
     try:
         claims = jwt.decode(

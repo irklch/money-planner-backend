@@ -1,3 +1,5 @@
+# Настройки для локального benchmark: локальная YDB, свой префикс таблиц, одноразовый JWT-секрет.
+
 from __future__ import annotations
 
 import os
@@ -8,6 +10,7 @@ from syncproto.config import Settings
 _SECRET = secrets.token_urlsafe(48)  # одноразовый секрет локального прогона
 
 
+# Settings для заданного префикса таблиц и стратегии.
 def local_settings(prefix: str, strategy: str, collect: bool = False) -> Settings:
     return Settings(
         env="local",

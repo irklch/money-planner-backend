@@ -14,6 +14,8 @@ Push — ровно два обращения к YDB в штатном случ�
 
 from __future__ import annotations
 
+# ydb — официальный Python SDK (Query Service, async); ydb.iam — аутентификация в Yandex Cloud;
+# retry_operation_async — повтор при ABORTED/перегрузке с backoff.
 import datetime as dt
 import json
 from collections.abc import Callable
@@ -23,12 +25,14 @@ import ydb
 import ydb.iam
 from ydb.retries import retry_operation_async
 
+# metering — учёт RU и обращений к YDB; schema — список колонок, которые читаем.
 from . import metering
 from .config import Settings
 from .engine import OpStats, PullPage, PushSnapshot, ResyncRequired
 from .models import Mutation, PushPlan, StoredRecord
 from .schema import COVER_COLUMNS
 
+# Типы параметров запросов YDB: список ключей пачки, строки записей и строки журнала мутаций.
 T = ydb.PrimitiveType
 _KEY_T = ydb.StructType().add_member("entity_type", T.Utf8).add_member("entity_id", T.Utf8)
 _REC_T = ydb.StructType()
@@ -58,26 +62,31 @@ _LOG_T = (
     .add_member("created_at", T.Timestamp)
 )
 
+# То же описание строки записи в синтаксисе YQL (DECLARE в запросе записи).
 _REC_DECL = (
     "List<Struct<user_id:Utf8, entity_type:Utf8, entity_id:Utf8, version:Uint64, created_at:Timestamp,"
     " updated_at:Timestamp, deleted_at:Timestamp?, order_ts:Timestamp, hlc:Utf8?, device_id:Utf8,"
     " schema_version:Uint32, mutation_id:Utf8, payload:Json?, server_updated_at:Timestamp>>"
 )
+# Колонки, которые читаем из sync_records (все, кроме user_id) — совпадают с покрытием индекса.
 _SELECT_COLS = ", ".join(("entity_type", "entity_id", "version", *COVER_COLUMNS))
 
 
+# YDB возвращает Timestamp без часового пояса (это UTC) — добавляем пояс явно.
 def _utc(v: dt.datetime | None) -> dt.datetime | None:
     if v is None:
         return None
     return v.replace(tzinfo=dt.UTC) if v.tzinfo is None else v.astimezone(dt.UTC)
 
 
+# Json из YDB приходит строкой или уже разобранным — приводим к словарю.
 def _payload(v: Any) -> dict[str, Any] | None:
     if v is None:
         return None
     return json.loads(v) if isinstance(v, str | bytes) else v
 
 
+# Строка таблицы → StoredRecord.
 def _row_to_record(row: Any) -> StoredRecord:
     return StoredRecord(
         entity_type=row["entity_type"],
@@ -95,6 +104,7 @@ def _row_to_record(row: Any) -> StoredRecord:
     )
 
 
+# StoredRecord → строка для UPSERT (payload — компактный JSON, server_updated_at — время записи).
 def _record_to_row(user_id: str, r: StoredRecord, now: dt.datetime) -> dict[str, Any]:
     return {
         "user_id": user_id,
@@ -116,9 +126,12 @@ def _record_to_row(user_id: str, r: StoredRecord, now: dt.datetime) -> dict[str,
     }
 
 
+# Подключиться к YDB с нужной аутентификацией и дождаться готовности (fail_fast — без долгих ожиданий).
 async def open_driver(s: Settings) -> ydb.aio.Driver:
+    # Учёт RU подключается до создания драйвера: он подменяет фабрику gRPC-каналов.
     metering.install()
     if s.ydb_auth == "anonymous":
+        # Только для локальной YDB в Docker (в облаке запрещено настройками).
         creds: Any = ydb.AnonymousCredentials()
     elif s.ydb_auth == "metadata":
         # IAM-токен сервисного аккаунта из сервиса метаданных (Serverless Containers / VM).
@@ -127,12 +140,14 @@ async def open_driver(s: Settings) -> ydb.aio.Driver:
         # YDB_ACCESS_TOKEN_CREDENTIALS=$(yc iam create-token) — для создания схемы оператором.
         creds = ydb.credentials_from_env_variables()
     else:
+        # Ключ сервисного аккаунта из файла — для запуска benchmark с ноутбука против облака.
         creds = ydb.iam.ServiceAccountCredentials.from_file(s.ydb_sa_key_file)
     driver = ydb.aio.Driver(endpoint=s.ydb_endpoint, database=s.ydb_database, credentials=creds)
     await driver.wait(timeout=15, fail_fast=True)
     return driver
 
 
+# Хранилище sync в YDB. Варианты (mutation_log, key_lookup) нужны только для сравнения в benchmark.
 class YdbStore:
     def __init__(
         self,
@@ -148,7 +163,9 @@ class YdbStore:
         self.prefix = prefix
         self.mutation_log = mutation_log
         self.key_lookup = key_lookup
+        # Тексты запросов собираются один раз; YDB кэширует план по тексту запроса.
         p = prefix
+        # Чтение записей пачки: JOIN с переданным списком ключей → точечный lookup по первичному ключу.
         if key_lookup == "join":
             records_read = f"""
             SELECT {", ".join(f"r.{c} AS {c}" for c in _SELECT_COLS.split(", "))}
@@ -157,11 +174,13 @@ class YdbStore:
                 ON r.entity_type = k.entity_type AND r.entity_id = k.entity_id
             WHERE r.user_id = $user_id;"""
             keys_decl = "DECLARE $keys AS List<Struct<entity_type:Utf8, entity_id:Utf8>>;"
+        # Альтернатива через IN по кортежам — для сравнения стоимости (тоже точечные чтения).
         else:
             records_read = f"""
             SELECT {_SELECT_COLS} FROM `{p}/sync_records`
             WHERE user_id = $user_id AND (entity_type, entity_id) IN $keys;"""
             keys_decl = "DECLARE $keys AS List<Tuple<Utf8, Utf8>>;"
+        # Запрос чтения push: состояние пользователя, уже обработанные мутации, текущие записи пачки.
         self._q_read = f"""
             DECLARE $user_id AS Utf8;
             DECLARE $mids AS List<Utf8>;
@@ -171,7 +190,9 @@ class YdbStore:
             WHERE user_id = $user_id AND mutation_id IN $mids;
             {records_read}
         """
+        # Журнал мутаций можно отключить (вариант benchmark «без журнала»).
         log_write = f"UPSERT INTO `{p}/sync_mutations` SELECT * FROM AS_TABLE($logs);" if mutation_log else ""
+        # Запрос записи push: записи, журнал и новое состояние — в той же транзакции, с commit.
         self._q_write = f"""
             DECLARE $user_id AS Utf8;
             DECLARE $records AS {_REC_DECL};
@@ -185,6 +206,7 @@ class YdbStore:
             UPSERT INTO `{p}/sync_state` (user_id, last_version, tombstone_horizon, updated_at)
             VALUES ($user_id, $last_version, $horizon, $now);
         """
+        # Запрос pull: горизонт tombstones и страница записей из индекса by_version по возрастанию версии.
         self._q_pull = f"""
             DECLARE $user_id AS Utf8;
             DECLARE $cursor AS Uint64;
@@ -196,6 +218,7 @@ class YdbStore:
             LIMIT $limit;
         """
 
+    # Выполнить запрос в транзакции; при сборе статистики — учесть строки/байты/CPU.
     async def _exec(
         self, tx: Any, stats: OpStats, query: str, params: dict[str, Any], commit: bool = False
     ) -> list[list[Any]]:
@@ -205,6 +228,7 @@ class YdbStore:
             _account(tx.last_query_stats, stats)
         return sets
 
+    # Прочитать все result set-ы ответа: [[строки первого SELECT], [второго], ...].
     @staticmethod
     async def _collect(it: Any) -> list[list[Any]]:
         out: list[list[Any]] = []
@@ -219,10 +243,12 @@ class YdbStore:
                 out[idx].extend(rs.rows)
         return out
 
+    # Push пачки: чтение → планирование → запись в одной serializable-транзакции с повторами.
     async def push(
         self, user_id: str, mutations: list[Mutation], planner: Callable[[PushSnapshot], PushPlan]
     ) -> tuple[PushPlan, OpStats]:
         stats = OpStats(attempts=0)
+        # Ключи пачки без повторов, в стабильном порядке.
         keys = sorted({m.key for m in mutations})
         if self.key_lookup == "join":
             keys_param = ([{"entity_type": t, "entity_id": i} for t, i in keys], ydb.ListType(_KEY_T))
@@ -235,11 +261,14 @@ class YdbStore:
             "$keys": keys_param,
         }
 
+        # Одна попытка транзакции. При ABORTED retry_operation_async вызовет её заново целиком.
         async def attempt(session: ydb.aio.QuerySession) -> PushPlan:
             stats.attempts += 1
+            # Serializable: чтение sync_state ставит оптимистичную блокировку; конкурентный коммит её сорвёт.
             tx = session.transaction(ydb.QuerySerializableReadWrite())
             _reset_io(stats)
             sets = await self._exec(tx, stats, self._q_read, read_params)
+            # Пользователь без строки sync_state — новый: версия 0.
             state = sets[0][0] if sets and sets[0] else None
             snap = PushSnapshot(
                 last_version=int(state["last_version"]) if state else 0,
@@ -253,7 +282,9 @@ class YdbStore:
                     for r in (sets[2] if len(sets) > 2 else [])
                 },
             )
+            # Решения по мутациям — чистая функция движка (engine.plan_push).
             plan = planner(snap)
+            # Всё было повторами — писать нечего, закрываем транзакцию без изменений.
             if not plan.changed:
                 await tx.rollback()
                 return plan
@@ -281,12 +312,14 @@ class YdbStore:
                 "$horizon": (snap.tombstone_horizon, T.Uint64),
                 "$now": (now, T.Timestamp),
             }
+            # Запись и commit одним запросом — второе и последнее обращение к YDB.
             await self._exec(tx, stats, self._q_write, params, commit=True)
             return plan
 
         plan = await self._run(attempt, stats)
         return plan, stats
 
+    # Pull страницы: одно обращение к YDB.
     async def pull(self, user_id: str, cursor: int, limit: int) -> tuple[PullPage, OpStats]:
         stats = OpStats(attempts=0)
         params = {
@@ -302,6 +335,7 @@ class YdbStore:
             _reset_io(stats)
             return await self._exec(tx, stats, self._q_pull, params, commit=True)
 
+        # Выполнить с повторами; проверить горизонт tombstones; отрезать лишнюю (+1) запись.
         sets = await self._run(attempt, stats)
         state = sets[0][0] if sets and sets[0] else None
         if cursor and state and cursor < int(state["tombstone_horizon"]):
@@ -310,10 +344,12 @@ class YdbStore:
         page, has_more = rows[:limit], len(rows) > limit
         return PullPage(page, page[-1].version if page else cursor, has_more), stats
 
+    # Обёртка повторов и учёта: сколько RU и обращений к YDB стоила операция (включая повторы).
     async def _run(self, attempt: Callable[[Any], Any], stats: OpStats) -> Any:
+        # До 15 повторов; idempotent=True — повторять и при неопределённом исходе (push идемпотентен).
         settings = ydb.RetrySettings(max_retries=15, idempotent=True)
         with metering.metered() as meter:
-
+            # Каждая попытка — с сессией из пула.
             async def callee() -> Any:
                 async with self.pool.checkout() as session:
                     return await attempt(session)
@@ -321,6 +357,7 @@ class YdbStore:
             try:
                 return await retry_operation_async(callee, settings)
             finally:
+                # Дождаться метаданных всех стримов и записать итоги в stats.
                 await meter.settle()
                 stats.ru = meter.ru
                 stats.ydb_calls = meter.ydb_calls
@@ -328,6 +365,7 @@ class YdbStore:
 
     # --- служебное для тестов и benchmark ---------------------------------------------------
 
+    # Удалить все данные тестовых пользователей (диапазон по первому полю ключа user_id).
     async def wipe_users(self, user_ids: list[str]) -> None:
         q = f"""
             DECLARE $ids AS List<Utf8>;
@@ -337,6 +375,7 @@ class YdbStore:
         """
         await self.pool.execute_with_retries(q, {"$ids": (user_ids, ydb.ListType(T.Utf8))})
 
+    # Сдвинуть горизонт tombstones — для теста 410 resync_required.
     async def set_tombstone_horizon(self, user_id: str, horizon: int) -> None:
         q = f"""
             DECLARE $u AS Utf8; DECLARE $h AS Uint64;
@@ -344,6 +383,7 @@ class YdbStore:
         """
         await self.pool.execute_with_retries(q, {"$u": (user_id, T.Utf8), "$h": (horizon, T.Uint64)})
 
+    # Всё серверное состояние пользователя — для проверок в тестах и симуляции.
     async def server_state(self, user_id: str) -> dict[tuple[str, str], StoredRecord]:
         q = f"""
             DECLARE $u AS Utf8;
@@ -352,12 +392,14 @@ class YdbStore:
         sets = await self.pool.execute_with_retries(q, {"$u": (user_id, T.Utf8)})
         return {(r["entity_type"], r["entity_id"]): _row_to_record(r) for rs in sets for r in rs.rows}
 
+    # Последняя выданная версия пользователя.
     async def last_version(self, user_id: str) -> int:
         q = f"DECLARE $u AS Utf8; SELECT last_version FROM `{self.prefix}/sync_state` WHERE user_id = $u;"
         sets = await self.pool.execute_with_retries(q, {"$u": (user_id, T.Utf8)})
         return int(sets[0].rows[0]["last_version"]) if sets and sets[0].rows else 0
 
 
+# Обнулить статистику ввода-вывода перед новой попыткой транзакции (учитываем только успешную).
 def _reset_io(stats: OpStats) -> None:
     stats.read_rows = stats.read_bytes = stats.write_rows = stats.write_bytes = stats.cpu_us = 0
     stats.ru_io_formula = 0
@@ -368,8 +410,10 @@ def _account(qs: Any, stats: OpStats) -> None:
     """Строки/байты по таблицам (включая индексные) и CPU одного запроса + RU по формуле
     https://yandex.cloud/ru/docs/ydb/pricing/ru-yql (только ввод-вывод: CPU локальной YDB под
     эмуляцией amd64 не репрезентативен для Serverless)."""
+    # Суммы по всему запросу; CPU — компиляция плюс все фазы выполнения.
     r_rows = r_bytes = w_rows = w_bytes = d_rows = 0
     cpu = int(getattr(qs.compilation, "cpu_time_us", 0) or 0)
+    # Статистика по фазам запроса и таблицам; индекс показываем как by_version(index).
     for phase in qs.query_phases:
         cpu += int(phase.cpu_time_us)
         for ta in phase.table_access:
@@ -390,6 +434,7 @@ def _account(qs: Any, stats: OpStats) -> None:
     stats.write_rows += w_rows + d_rows
     stats.write_bytes += w_bytes
     stats.cpu_us += cpu
+    # Формула YDB: чтение — max(строки, ⌈байты/4 КБ⌉) × 1 RU; запись — max(строки, ⌈байты/1 КБ⌉) × 2 RU.
     reads = max(r_rows, -(-r_bytes // 4096))
     writes = max(w_rows, -(-w_bytes // 1024)) + d_rows
     stats.ru_io_formula += reads + 2 * writes

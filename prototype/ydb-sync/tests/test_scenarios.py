@@ -21,14 +21,17 @@ from .conftest import PERM_USERS, USER_A, USER_B, SkewClock, assert_converged, s
 pytestmark = pytest.mark.ydb
 
 
+# Создать категорию «Еда» на устройстве.
 def _cat(c: SyncClient) -> str:
     return c.create_category("Еда", "🍔")
 
 
+# Создать расход в категории на устройстве.
 def _exp(c: SyncClient, cat: str, amount: str = "100.00", comment: str | None = None) -> str:
     return c.create_expense(amount, cat, "2026-10-01", comment)
 
 
+# 1. A создаёт категорию и расход → B после sync видит их с тем же содержимым.
 async def test_01_create_reaches_other_device(device, store):
     a, b = device(USER_A, "phone-a"), device(USER_A, "ipad-a")
     cat = _cat(a)
@@ -42,6 +45,7 @@ async def test_01_create_reaches_other_device(device, store):
     await assert_converged(store, USER_A, a, b)
 
 
+# 2. A правит сумму → B получает новую сумму.
 async def test_02_edit_reaches_other_device(device, store):
     a, b = device(USER_A, "phone-a"), device(USER_A, "ipad-a")
     e = _exp(a, _cat(a))
@@ -54,6 +58,7 @@ async def test_02_edit_reaches_other_device(device, store):
     await assert_converged(store, USER_A, a, b)
 
 
+# 3. A удаляет расход → у B он пропадает, а локально остаётся tombstone.
 async def test_03_delete_reaches_other_device(device, store):
     a, b = device(USER_A, "phone-a"), device(USER_A, "ipad-a")
     e = _exp(a, _cat(a))
@@ -67,6 +72,8 @@ async def test_03_delete_reaches_other_device(device, store):
     await assert_converged(store, USER_A, a, b)
 
 
+# 4. Офлайн-правки копятся в outbox и уходят после восстановления связи;
+# до этого на сервер ничего не попадает.
 async def test_04_offline_changes_sent_after_reconnect(device, store):
     a, b = device(USER_A, "phone-a"), device(USER_A, "ipad-a")
     a.transport.offline = True
@@ -84,6 +91,7 @@ async def test_04_offline_changes_sent_after_reconnect(device, store):
     await assert_converged(store, USER_A, a, b)
 
 
+# 5. Тот же запрос push отправлен дважды: второй ответ — повтор (replayed), новых версий и дублей нет.
 async def test_05_same_request_twice_no_duplicates(device, store, http):
     a = device(USER_A, "phone-a")
     cat = _cat(a)
@@ -101,6 +109,7 @@ async def test_05_same_request_twice_no_duplicates(device, store, http):
     assert len(await store.server_state(USER_A)) == 2
 
 
+# 6. Сервер сохранил пачку, но ответ потерян: повторная отправка безопасна, версии не меняются.
 async def test_06_response_lost_after_server_commit(device, store):
     a, b = device(USER_A, "phone-a"), device(USER_A, "ipad-a")
     e = _exp(a, _cat(a))
@@ -116,6 +125,8 @@ async def test_06_response_lost_after_server_commit(device, store):
     await assert_converged(store, USER_A, a, b)
 
 
+# 6b. Ответ потерян, а другое устройство тем временем изменило запись:
+# повтор приносит клиенту актуальную запись.
 async def test_06b_lost_response_while_other_device_edits(device, store):
     """Регрессия: повтор возвращает сохранённый результат, но запись успела измениться другим
     устройством. Без приложенной актуальной записи A навсегда остался бы со своей версией."""
@@ -134,6 +145,8 @@ async def test_06b_lost_response_while_other_device_edits(device, store):
     assert final[("expense", e)][0]["amount"] == "2.00"
 
 
+# 7. A и B одновременно правят один расход; позже по времени правит B, но синхронизируется первым.
+# Итог у всех — правка B; правка A отклонена как конфликт (LWW по записи).
 async def test_07_concurrent_edit_same_expense(device, store, strategy):
     ca, cb = SkewClock(), SkewClock()
     a, b = device(USER_A, "phone-a", ca), device(USER_A, "ipad-a", cb)
@@ -155,6 +168,7 @@ async def test_07_concurrent_edit_same_expense(device, store, strategy):
     assert ra.rejected == 1 and ra.conflicts == 1
 
 
+# 7b. То же, но более поздняя правка у того, кто синхронизируется вторым: она и побеждает.
 async def test_07b_concurrent_edit_later_pusher_has_newer_edit(device, store):
     ca, cb = SkewClock(), SkewClock()
     a, b = device(USER_A, "phone-a", ca), device(USER_A, "ipad-a", cb)
@@ -171,6 +185,8 @@ async def test_07b_concurrent_edit_later_pusher_has_newer_edit(device, store):
     assert final[("expense", e)][0]["amount"] == "2.00"
 
 
+# 8. A удаляет расход офлайн, B правит его офлайн ПОЗЖЕ по времени. В любом порядке синхронизации
+# запись остаётся удалённой (delete wins) — никакого воскрешения.
 @pytest.mark.parametrize("first", ["deleter", "editor"])
 async def test_08_delete_vs_offline_edit(device, store, first):
     ca, cb = SkewClock(), SkewClock()
@@ -191,6 +207,7 @@ async def test_08_delete_vs_offline_edit(device, store, first):
     assert e not in a.visible("expense") and e not in b.visible("expense")
 
 
+# 9. Новый телефон с cursor = 0 страницами по 7 восстанавливает всё, включая удаления.
 async def test_09_new_phone_restores_everything_from_cursor_zero(device, store):
     a = device(USER_A, "phone-a")
     cat = _cat(a)
@@ -209,6 +226,7 @@ async def test_09_new_phone_restores_everything_from_cursor_zero(device, store):
     await assert_converged(store, USER_A, a, c)
 
 
+# 10. Pull обрывается после двух страниц; после перезапуска продолжает с сохранённого курсора.
 async def test_10_pull_interrupted_mid_pages_resumes(device, store):
     a = device(USER_A, "phone-a")
     cat = _cat(a)
@@ -229,6 +247,8 @@ async def test_10_pull_interrupted_mid_pages_resumes(device, store):
     assert c.snapshot() == a.snapshot()
 
 
+# 11. Приложение «падает» с непустым outbox, затем теряет ответ первой отправки —
+# данные всё равно доходят ровно один раз.
 async def test_11_restart_with_non_empty_outbox(device, store):
     a = device(USER_A, "phone-a")
     a.transport.offline = True
@@ -247,6 +267,8 @@ async def test_11_restart_with_non_empty_outbox(device, store):
     assert len(state) == 5 and state[("expense", ids[0])].deleted
 
 
+# 12. Пользователи изолированы даже при одинаковых UUID записей;
+# userId нельзя ни передать в запросе, ни подделать токеном.
 async def test_12_users_are_isolated(device, store, http):
     a = device(USER_A, "phone-a")
     e = _exp(a, _cat(a), comment="секрет A")
@@ -281,6 +303,8 @@ async def test_12_users_are_isolated(device, store, http):
     }
 
 
+# 13. Три конкурентные правки одной записи во всех 6 порядках прихода дают одно и то же состояние;
+# с удалением среди них — запись удалена при любом порядке.
 async def test_13_same_changes_different_order_converge(store, http, strategy):
     """Три конкурентные правки одной записи (одна база) в разных порядках прихода дают одно
     состояние, а повтор той же пачки — те же результаты."""
@@ -336,6 +360,8 @@ async def test_13_same_changes_different_order_converge(store, http, strategy):
     assert all(f[("expense", eid)] == (None, True) for f in finals)
 
 
+# 14. 8 устройств одного пользователя отправляют push одновременно: версии уникальны и без пропусков,
+# одновременная правка одной записи с двух устройств сходится к одному состоянию.
 async def test_14_concurrent_pushes_same_user(device, store, http):
     devices = [device(USER_A, f"dev-{i}") for i in range(8)]
     cat = _cat(devices[0])
@@ -358,6 +384,7 @@ async def test_14_concurrent_pushes_same_user(device, store, http):
     await assert_converged(store, USER_A, *devices)
 
 
+# 15. Первичная синхронизация 1200 записей: выгрузка 3 пачками по 500, загрузка 3 страницами.
 async def test_15_large_initial_sync_in_batches(device, store):
     a = device(USER_A, "phone-a", push_batch=500)
     cat = _cat(a)
@@ -372,6 +399,7 @@ async def test_15_large_initial_sync_in_batches(device, store):
     assert len(await store.server_state(USER_A)) == 1200
 
 
+# Курсор старше горизонта очистки tombstones — 410; полная перезагрузка с 0 разрешена.
 async def test_resync_required_after_tombstone_horizon(device, store):
     a = device(USER_A, "phone-a")
     _exp(a, _cat(a))

@@ -25,10 +25,12 @@ import httpx
 from bench.bench import Client, _push_new, expense
 from syncproto import auth
 
+# Результаты пишутся рядом с локальными, в bench/results/.
 RESULTS = Path(__file__).resolve().parents[1] / "bench" / "results"
 USER = "00000000-0000-4000-8000-0000000c1000"  # фиксированный синтетический пользователь
 
 
+# Один запрос /health с токеном: время ответа и признаки холодного экземпляра.
 async def probe(http: httpx.AsyncClient, token: str) -> dict:
     t0 = time.perf_counter()
     r = await http.get("/health", headers={"Authorization": f"Bearer {token}"})
@@ -42,6 +44,7 @@ async def probe(http: httpx.AsyncClient, token: str) -> dict:
     }
 
 
+# Подготовить историю 1000 записей, затем для каждого периода простоя — холодный замер, потом тёплые.
 async def main(idles: list[float], warm: int) -> None:
     url, secret = os.environ["GATEWAY_URL"], os.environ["SYNC_JWT_SECRET"]
     token = auth.issue_test_token(secret, USER, "money-planner-sync-proto")

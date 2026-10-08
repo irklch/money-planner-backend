@@ -18,11 +18,13 @@ from syncproto.store_ydb import YdbStore
 
 from .conftest import PERM_USERS, TEST_PREFIX, USER_A, USER_B
 
+# Все тесты файла требуют YDB. Измерения сохраняются в bench/results/ и цитируются в REPORT.md.
 pytestmark = pytest.mark.ydb
 RESULTS = Path(__file__).resolve().parents[1] / "bench" / "results"
 NOW = dt.datetime.now(dt.UTC)
 
 
+# Мутация расхода: одинаковый i → одинаковый entityId (детерминированно), mutationId всегда новый.
 def m(
     i: int | str, base: int = 0, comment: str = "c", op: str = "upsert", eid: str | None = None
 ) -> Mutation:
@@ -49,11 +51,14 @@ def m(
     )
 
 
+# Сохранить результат измерения в bench/results/<name>.
 def _save(name: str, data: object) -> None:
     RESULTS.mkdir(parents=True, exist_ok=True)
     (RESULTS / name).write_text(json.dumps(data, indent=2, ensure_ascii=False, default=str) + "\n")
 
 
+# Пачка атомарна: сбой после всех UPSERT в том же запросе или падение между чтением и записью
+# не оставляет ни записей, ни новой версии, ни журнала.
 async def test_batch_is_atomic_when_write_fails(store: YdbStore):
     engine = SyncEngine(store, "version")
     await engine.push(USER_A, "d1", [m(1), m(2)])
@@ -80,6 +85,7 @@ async def test_batch_is_atomic_when_write_fails(store: YdbStore):
     assert (await store.last_version(USER_A), await store.server_state(USER_A)) == before
 
 
+# Версии атомарны при конкурентных push одного пользователя, и параллельный pull ничего не пропускает.
 async def test_versions_are_atomic_under_concurrent_pushes_and_pull_never_skips(store: YdbStore):
     engine = SyncEngine(store, "version")
     n_push, per = 8, 5  # реалистичный максимум устройств ×2; предел конкуренции — в bench
@@ -127,6 +133,7 @@ async def test_versions_are_atomic_under_concurrent_pushes_and_pull_never_skips(
     )
 
 
+# Извлечь из JSON-плана операторы, таблицы и диапазоны чтения.
 def _plan_ops(plan: object) -> tuple[set[str], set[str], list[str]]:
     s = (plan if isinstance(plan, str) else json.dumps(plan, ensure_ascii=False)).replace("\\/", "/")
     names = set(re.findall(r'"Name": ?"([^"]+)"', s))
@@ -135,6 +142,7 @@ def _plan_ops(plan: object) -> tuple[set[str], set[str], list[str]]:
     return names, tables, ranges
 
 
+# Планы запросов: push читает записи точечным Lookup, pull — диапазон индекса by_version, без FullScan.
 async def test_query_plans_use_keys_not_scans(store: YdbStore):
     mids = ydb.ListType(ydb.PrimitiveType.Utf8)
     kt = (
@@ -173,6 +181,7 @@ async def test_query_plans_use_keys_not_scans(store: YdbStore):
     )
 
 
+# Стоимость (RU) не растёт с размером истории пользователя — значит, сканирования нет.
 async def test_cost_does_not_grow_with_user_history(store: YdbStore):
     """Фактические RU: pull страницы и push одной записи у пользователя с 3000 записей стоят
     столько же, сколько у пользователя с 30. Значит, сканирования истории нет."""
@@ -204,6 +213,7 @@ async def test_cost_does_not_grow_with_user_history(store: YdbStore):
         assert lookup_variants[variant]["push10_big_ru"] <= lookup_variants[variant]["push10_small_ru"] + 2
 
 
+# TTL 30 дней по created_at действительно настроен на журнале мутаций.
 async def test_ttl_is_configured_on_mutation_log(ydb_pool, store: YdbStore):
     driver = ydb_pool._driver
     desc = await driver.table_client.describe_table(
@@ -218,6 +228,7 @@ async def test_ttl_is_configured_on_mutation_log(ydb_pool, store: YdbStore):
     _save("ttl_config.json", data)
 
 
+# Фоновое удаление по TTL реально срабатывает (локально — примерно за 15 с).
 @pytest.mark.slow
 async def test_ttl_actually_deletes_expired_rows(ydb_pool):
     """Фоновое удаление по TTL: проверяем, успевает ли локальная YDB удалить строку за 3 минуты."""
@@ -244,6 +255,7 @@ async def test_ttl_actually_deletes_expired_rows(ydb_pool):
         pytest.xfail("local YDB did not run the TTL background job within 3 minutes")
 
 
+# Пределы размера одной транзакции push (до 20 000 мутаций по ~1,1 КБ).
 @pytest.mark.slow
 async def test_transaction_size_limits(store: YdbStore):
     """Сколько мутаций с максимальным payload (комментарий 500 символов кириллицей) выдерживает

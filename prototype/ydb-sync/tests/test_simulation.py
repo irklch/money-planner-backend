@@ -10,9 +10,11 @@ from client.simulate import TrackingMemoryStore, compare, run_history
 
 from .conftest import PERM_USERS
 
+# Сколько историй прогонять (по умолчанию 150; для полного прогона — SIM_SEEDS=1000).
 SEEDS = int(os.environ.get("SIM_SEEDS", "150"))
 
 
+# Выбранные стратегии не нарушают ни одного инварианта, а отвергнутые нарушают ожидаемые.
 async def test_strategies_invariants():
     table = await compare(range(SEEDS), ["lww_clock", "hlc", "hlc_dw", "version"])
     for name in ("version", "hlc_dw"):

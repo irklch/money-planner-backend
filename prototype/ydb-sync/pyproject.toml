@@ -1,8 +1,10 @@
+# Отдельный Python-проект прототипа: не зависит от корневого pyproject.toml и не попадает в его сборку.
 [project]
 name = "money-planner-ydb-sync-prototype"
 version = "0.1.0"
 description = "Исследовательский прототип: sync-протокол Money Planner на YDB Serverless"
 requires-python = ">=3.12,<3.13"
+# Рантайм: API, сервер, валидация, SDK YDB (с поддержкой Yandex Cloud IAM), JWT.
 dependencies = [
     "fastapi>=0.115,<1.0",
     "uvicorn>=0.30",
@@ -11,6 +13,7 @@ dependencies = [
     "pyjwt>=2.9",
 ]
 
+# Разработка: тесты, HTTP-клиент для тестов и benchmark, линтер.
 [dependency-groups]
 dev = [
     "pytest>=8.3",
@@ -19,17 +22,20 @@ dev = [
     "ruff>=0.6",
 ]
 
+# pytest: async-тесты, один event loop на сессию (общий пул YDB), импорт пакетов из корня прототипа.
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "session"
 asyncio_default_test_loop_scope = "session"
 testpaths = ["tests"]
 pythonpath = ["."]
+# Маркеры: ydb — нужна локальная YDB; slow — долгие (TTL, пределы транзакций).
 markers = [
     "ydb: тест требует локальную YDB (YDB_ENDPOINT)",
     "slow: долгий тест (TTL, лимиты)",
 ]
 
+# ruff — те же правила, что в основном backend.
 [tool.ruff]
 line-length = 110
 target-version = "py312"
@@ -42,5 +48,6 @@ ignore = ["B008"]
 requires = ["setuptools>=69"]
 build-backend = "setuptools.build_meta"
 
+# Устанавливаемые пакеты (bench и cloud запускаются как модули из корня прототипа).
 [tool.setuptools.packages.find]
 include = ["syncproto*", "client*"]
