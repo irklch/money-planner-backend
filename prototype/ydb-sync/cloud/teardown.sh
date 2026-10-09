@@ -18,6 +18,7 @@ if [[ -n "${REGISTRY_ID:-}" ]]; then
   Y container registry delete "$P-registry"
 fi
 Y lockbox secret delete "$P-jwt" || true
+Y logging group delete "$P-logs" || true
 Y ydb database delete "$P-db" || true
 Y iam service-account delete "$P-gateway" || true
 Y iam service-account delete "$P-runtime" || true
@@ -26,9 +27,9 @@ docker logout cr.yandex >/dev/null 2>&1 || true
 echo "== Проверка: ресурсов с префиксом $P не осталось"
 left=0
 for cmd in "ydb database" "serverless container" "serverless api-gateway" "lockbox secret" \
-           "container registry" "iam service-account"; do
+           "container registry" "iam service-account" "logging group"; do
   # shellcheck disable=SC2086
-  names=$(Y $cmd list --format json | jq -r '.[]?.name' | grep "^$P" || true)
+  names=$(Y $cmd list --format json 2>/dev/null | jq -r '.[]?.name' | grep "^$P" || true)
   if [[ -n "$names" ]]; then echo "ОСТАЛОСЬ ($cmd): $names"; left=1; fi
 done
 # Lockbox удаляет секрет не мгновенно (статус DELETING) — повторите проверку позже, если он виден.

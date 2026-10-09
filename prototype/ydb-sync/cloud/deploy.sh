@@ -23,10 +23,12 @@ Y() { yc --folder-id "$FOLDER_ID" "$@"; }
 echo "== 0. Предпроверка: ни одного ресурса с префиксом $P в каталоге (существующие ресурсы не трогаем)"
 ./cloud/preflight.sh
 
-echo "== 1. YDB Serverless: лимит RU/с по умолчанию (10 RU/с, неиспользованные RU копятся 5 мин)."
+echo "== 1. YDB Serverless: лимит 10 RU/с (значение по умолчанию; неиспользованные RU копятся 5 мин)."
 # Лимит не повышаем заранее: эксперимент как раз проверяет, хватает ли его для MVP.
-# Хранилище — 1 ГБ (бесплатный объём).
-Y ydb database create "$P-db" --serverless --sls-storage-size 1GB
+# Явно: троттлинг включён (предохранитель счёта), выделенной ёмкости нет (нет почасовой оплаты),
+# хранилище — 1 ГБ (бесплатный объём).
+Y ydb database create "$P-db" --serverless --sls-storage-size 1GB \
+  --sls-enable-throttling-rcu=true --sls-throttling-rcu 10 --sls-provisioned-rcu 0
 DB_ENDPOINT=$(Y ydb database get "$P-db" --format json | jq -r .endpoint)   # grpcs://...?database=/ru-central1/...
 YDB_ENDPOINT="${DB_ENDPOINT%%/?database=*}"
 YDB_DATABASE="${DB_ENDPOINT##*database=}"
@@ -41,10 +43,15 @@ Y ydb database add-access-binding "$P-db" --role ydb.editor --service-account-id
 
 echo "== 3. Секрет JWT в Lockbox (значение генерируется здесь и в репозиторий не попадает)"
 JWT=$(python3 -c 'import secrets; print(secrets.token_urlsafe(48))')
-Y lockbox secret create --name "$P-jwt" --payload "[{\"key\":\"jwt\",\"text_value\":\"$JWT\"}]" >/dev/null
+# Значение передаётся через stdin, а не аргументом: не видно в списке процессов.
+printf '[{"key":"jwt","text_value":"%s"}]' "$JWT" | Y lockbox secret create --name "$P-jwt" --payload - >/dev/null
 unset JWT
 SECRET_ID=$(Y lockbox secret get "$P-jwt" --format json | jq -r .id)
 Y lockbox secret add-access-binding "$SECRET_ID" --role lockbox.payloadViewer --service-account-id "$RUNTIME_SA"
+
+echo "== 3b. Лог-группа прототипа (хранение 1 день), запись — только runtime-аккаунту"
+Y logging group create --name "$P-logs" --retention-period 24h
+Y logging group add-access-binding "$P-logs" --role logging.writer --service-account-id "$RUNTIME_SA"
 
 echo "== 4. Container Registry и образ"
 Y container registry create --name "$P-registry"
@@ -68,7 +75,8 @@ Y serverless container revision deploy --container-name "$P-api" --image "$IMAGE
   --cores 1 --core-fraction 100 --memory 512MB --concurrency 4 --execution-timeout 30s \
   --service-account-id "$RUNTIME_SA" \
   --environment "ENV=cloud,YDB_ENDPOINT=$YDB_ENDPOINT,YDB_DATABASE=$YDB_DATABASE,YDB_AUTH=metadata,YDB_COLLECT_STATS=1,YDB_POOL_SIZE=4" \
-  --secret "environment-variable=SYNC_JWT_SECRET,id=$SECRET_ID,key=jwt"
+  --secret "environment-variable=SYNC_JWT_SECRET,id=$SECRET_ID,key=jwt" \
+  --log-group-name "$P-logs" --min-log-level warn
 CONTAINER_ID=$(Y serverless container get "$P-api" --format json | jq -r .id)
 # Вызов контейнера — только сервисному аккаунту шлюза. allUsers НЕ добавляем.
 Y serverless container add-access-binding "$P-api" --role serverless.containers.invoker \

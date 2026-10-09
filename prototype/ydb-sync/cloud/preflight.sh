@@ -27,6 +27,7 @@ show "Container Registry" container registry list
 show "Сервисные аккаунты" iam service-account list
 show "VM" compute instance list
 show "Managed PostgreSQL" managed-postgresql cluster list
+show "Лог-группы" logging group list
 if [[ $clash -ne 0 ]]; then
   echo "СТОП: в каталоге уже есть ресурсы с префиксом $P. Ничего не создаю." >&2
   exit 1
