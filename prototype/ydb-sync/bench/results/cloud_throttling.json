@@ -1,0 +1,341 @@
+{
+  "when": "2026-10-09T20:51:48.494124+00:00",
+  "checks": {
+    "первичная выгрузка 1000 записей завершилась": true
+  },
+  "passed": 1,
+  "total": 1,
+  "timings": {
+    "bulk_upload10": {
+      "records": 1001,
+      "sync_attempts": 1,
+      "busy_503": 0,
+      "seconds": 3.6
+    },
+    "bulk_upload11": {
+      "records": 1001,
+      "sync_attempts": 1,
+      "busy_503": 0,
+      "seconds": 32.3
+    },
+    "bulk_upload12": {
+      "records": 1001,
+      "sync_attempts": 1,
+      "busy_503": 0,
+      "seconds": 18.3
+    }
+  },
+  "by_step": {
+    "bulk_upload_100010 GET /sync/pull": {
+      "requests": 4,
+      "ru": 2013,
+      "latency_ms_p50": 397.9,
+      "latency_ms_max": 500.2
+    },
+    "bulk_upload_100010 POST /sync/push": {
+      "requests": 3,
+      "ru": 6044,
+      "latency_ms_p50": 797.5,
+      "latency_ms_max": 900.5
+    },
+    "bulk_upload_100011 GET /sync/pull": {
+      "requests": 4,
+      "ru": 2080,
+      "latency_ms_p50": 416.0,
+      "latency_ms_max": 1668.4
+    },
+    "bulk_upload_100011 POST /sync/push": {
+      "requests": 3,
+      "ru": 6805,
+      "latency_ms_p50": 2292.1,
+      "latency_ms_max": 26063.6
+    },
+    "bulk_upload_100012 GET /sync/pull": {
+      "requests": 4,
+      "ru": 2013,
+      "latency_ms_p50": 292.6,
+      "latency_ms_max": 392.2
+    },
+    "bulk_upload_100012 POST /sync/push": {
+      "requests": 3,
+      "ru": 6344,
+      "latency_ms_p50": 842.7,
+      "latency_ms_max": 15396.0
+    }
+  },
+  "requests": [
+    {
+      "step": "bulk_upload_100010",
+      "device": "bulk-phone10",
+      "method": "GET",
+      "path": "/sync/pull",
+      "status": 200,
+      "latency_ms": 500.2,
+      "ru": 1,
+      "ydb_calls": 1,
+      "attempts": 1,
+      "app_ms": 57.7,
+      "ru_formula": 0
+    },
+    {
+      "step": "bulk_upload_100010",
+      "device": "bulk-phone10",
+      "method": "POST",
+      "path": "/sync/push",
+      "status": 200,
+      "latency_ms": 900.5,
+      "ru": 3016,
+      "ydb_calls": 2,
+      "attempts": 1,
+      "app_ms": 306.9,
+      "ru_formula": 3002
+    },
+    {
+      "step": "bulk_upload_100010",
+      "device": "bulk-phone10",
+      "method": "POST",
+      "path": "/sync/push",
+      "status": 200,
+      "latency_ms": 797.5,
+      "ru": 3017,
+      "ydb_calls": 2,
+      "attempts": 1,
+      "app_ms": 305.0,
+      "ru_formula": 3003
+    },
+    {
+      "step": "bulk_upload_100010",
+      "device": "bulk-phone10",
+      "method": "POST",
+      "path": "/sync/push",
+      "status": 200,
+      "latency_ms": 349.5,
+      "ru": 11,
+      "ydb_calls": 2,
+      "attempts": 1,
+      "app_ms": 147.8,
+      "ru_formula": 9
+    },
+    {
+      "step": "bulk_upload_100010",
+      "device": "bulk-phone10",
+      "method": "GET",
+      "path": "/sync/pull",
+      "status": 200,
+      "latency_ms": 259.7,
+      "ru": 1004,
+      "ydb_calls": 1,
+      "attempts": 1,
+      "app_ms": 80.8,
+      "ru_formula": 502
+    },
+    {
+      "step": "bulk_upload_100010",
+      "device": "bulk-phone10",
+      "method": "GET",
+      "path": "/sync/pull",
+      "status": 200,
+      "latency_ms": 397.9,
+      "ru": 1004,
+      "ydb_calls": 1,
+      "attempts": 1,
+      "app_ms": 142.6,
+      "ru_formula": 502
+    },
+    {
+      "step": "bulk_upload_100010",
+      "device": "bulk-phone10",
+      "method": "GET",
+      "path": "/sync/pull",
+      "status": 200,
+      "latency_ms": 187.2,
+      "ru": 4,
+      "ydb_calls": 1,
+      "attempts": 1,
+      "app_ms": 39.8,
+      "ru_formula": 2
+    },
+    {
+      "step": "bulk_upload_100011",
+      "device": "bulk-phone11",
+      "method": "GET",
+      "path": "/sync/pull",
+      "status": 200,
+      "latency_ms": 1668.4,
+      "ru": 68,
+      "ydb_calls": 2,
+      "attempts": 2,
+      "app_ms": 1408.0,
+      "ru_formula": 0
+    },
+    {
+      "step": "bulk_upload_100011",
+      "device": "bulk-phone11",
+      "method": "POST",
+      "path": "/sync/push",
+      "status": 200,
+      "latency_ms": 2292.1,
+      "ru": 3292,
+      "ydb_calls": 3,
+      "attempts": 2,
+      "app_ms": 1924.5,
+      "ru_formula": 3002
+    },
+    {
+      "step": "bulk_upload_100011",
+      "device": "bulk-phone11",
+      "method": "POST",
+      "path": "/sync/push",
+      "status": 200,
+      "latency_ms": 26063.6,
+      "ru": 3502,
+      "ydb_calls": 8,
+      "attempts": 6,
+      "app_ms": 25599.2,
+      "ru_formula": 3003
+    },
+    {
+      "step": "bulk_upload_100011",
+      "device": "bulk-phone11",
+      "method": "POST",
+      "path": "/sync/push",
+      "status": 200,
+      "latency_ms": 659.2,
+      "ru": 11,
+      "ydb_calls": 2,
+      "attempts": 1,
+      "app_ms": 180.9,
+      "ru_formula": 9
+    },
+    {
+      "step": "bulk_upload_100011",
+      "device": "bulk-phone11",
+      "method": "GET",
+      "path": "/sync/pull",
+      "status": 200,
+      "latency_ms": 416.0,
+      "ru": 1004,
+      "ydb_calls": 1,
+      "attempts": 1,
+      "app_ms": 183.2,
+      "ru_formula": 502
+    },
+    {
+      "step": "bulk_upload_100011",
+      "device": "bulk-phone11",
+      "method": "GET",
+      "path": "/sync/pull",
+      "status": 200,
+      "latency_ms": 364.6,
+      "ru": 1004,
+      "ydb_calls": 1,
+      "attempts": 1,
+      "app_ms": 100.0,
+      "ru_formula": 502
+    },
+    {
+      "step": "bulk_upload_100011",
+      "device": "bulk-phone11",
+      "method": "GET",
+      "path": "/sync/pull",
+      "status": 200,
+      "latency_ms": 180.5,
+      "ru": 4,
+      "ydb_calls": 1,
+      "attempts": 1,
+      "app_ms": 35.3,
+      "ru_formula": 2
+    },
+    {
+      "step": "bulk_upload_100012",
+      "device": "bulk-phone12",
+      "method": "GET",
+      "path": "/sync/pull",
+      "status": 200,
+      "latency_ms": 218.4,
+      "ru": 1,
+      "ydb_calls": 1,
+      "attempts": 1,
+      "app_ms": 61.0,
+      "ru_formula": 0
+    },
+    {
+      "step": "bulk_upload_100012",
+      "device": "bulk-phone12",
+      "method": "POST",
+      "path": "/sync/push",
+      "status": 200,
+      "latency_ms": 842.7,
+      "ru": 3017,
+      "ydb_calls": 2,
+      "attempts": 1,
+      "app_ms": 408.8,
+      "ru_formula": 3002
+    },
+    {
+      "step": "bulk_upload_100012",
+      "device": "bulk-phone12",
+      "method": "POST",
+      "path": "/sync/push",
+      "status": 200,
+      "latency_ms": 677.1,
+      "ru": 3015,
+      "ydb_calls": 2,
+      "attempts": 1,
+      "app_ms": 264.6,
+      "ru_formula": 3003
+    },
+    {
+      "step": "bulk_upload_100012",
+      "device": "bulk-phone12",
+      "method": "POST",
+      "path": "/sync/push",
+      "status": 200,
+      "latency_ms": 15396.0,
+      "ru": 312,
+      "ydb_calls": 7,
+      "attempts": 5,
+      "app_ms": 15043.0,
+      "ru_formula": 9
+    },
+    {
+      "step": "bulk_upload_100012",
+      "device": "bulk-phone12",
+      "method": "GET",
+      "path": "/sync/pull",
+      "status": 200,
+      "latency_ms": 392.2,
+      "ru": 1004,
+      "ydb_calls": 1,
+      "attempts": 1,
+      "app_ms": 153.9,
+      "ru_formula": 502
+    },
+    {
+      "step": "bulk_upload_100012",
+      "device": "bulk-phone12",
+      "method": "GET",
+      "path": "/sync/pull",
+      "status": 200,
+      "latency_ms": 292.6,
+      "ru": 1004,
+      "ydb_calls": 1,
+      "attempts": 1,
+      "app_ms": 114.5,
+      "ru_formula": 502
+    },
+    {
+      "step": "bulk_upload_100012",
+      "device": "bulk-phone12",
+      "method": "GET",
+      "path": "/sync/pull",
+      "status": 200,
+      "latency_ms": 207.7,
+      "ru": 4,
+      "ydb_calls": 1,
+      "attempts": 1,
+      "app_ms": 13.4,
+      "ru_formula": 2
+    }
+  ]
+}

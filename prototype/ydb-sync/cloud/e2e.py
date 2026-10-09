@@ -203,15 +203,16 @@ async def scenario(run: Run, restore_n: int) -> None:
 
 
 # Первичная выгрузка большой истории (создание аккаунта с данными) при текущем лимите RU/с.
-async def bulk_upload(run: Run, n: int) -> None:
-    d = run.device("bulk-phone", user=BULK_USER, push_batch=500)
-    run.step(d, name=f"bulk_upload_{n}")
+async def bulk_upload(run: Run, n: int, tag: str = "") -> None:
+    user = BULK_USER if not tag else f"00000000-0000-4000-8000-0000000e2e{int(tag):02d}"
+    d = run.device(f"bulk-phone{tag}", user=user, push_batch=500)
+    run.step(d, name=f"bulk_upload_{n}{tag}")
     cat = d.create_category("Импорт")
     for i in range(n):
         d.create_expense(f"{i % 900 + 1}.00", cat, "2026-08-01", f"синтетика {i}")
     tries, secs = await sync_until_ok(d)
-    busy = sum(1 for e in run.log if e["step"] == f"bulk_upload_{n}" and e["status"] != 200)
-    run.timings["bulk_upload"] = {
+    busy = sum(1 for e in run.log if e["step"] == f"bulk_upload_{n}{tag}" and e["status"] != 200)
+    run.timings[f"bulk_upload{tag}"] = {
         "records": n + 1,
         "sync_attempts": tries,
         "busy_503": busy,
@@ -238,14 +239,16 @@ def summarize(log: list[dict[str, Any]]) -> dict[str, Any]:
     return out
 
 
-async def main(restore_n: int, bulk_n: int) -> None:
+async def main(restore_n: int, bulk_n: int, bulk_repeat: int, scenario_on: bool, out: str) -> None:
     url, secret = os.environ["GATEWAY_URL"], os.environ["SYNC_JWT_SECRET"]
     with tempfile.TemporaryDirectory() as tmp:
         async with httpx.AsyncClient(base_url=url, timeout=60) as http:
             run = Run(http, secret, tmp)
-            await scenario(run, restore_n)
-            if bulk_n:
-                await bulk_upload(run, bulk_n)
+            if scenario_on:
+                await scenario(run, restore_n)
+            # Несколько выгрузок подряд разными пользователями — проверка троттлинга RU/с.
+            for i in range(bulk_repeat if bulk_n else 0):
+                await bulk_upload(run, bulk_n, tag="" if bulk_repeat == 1 else str(10 + i))
     result = {
         "when": dt.datetime.now(dt.UTC).isoformat(),
         "checks": run.checks,
@@ -256,7 +259,7 @@ async def main(restore_n: int, bulk_n: int) -> None:
         "requests": run.log,
     }
     RESULTS.mkdir(exist_ok=True)
-    (RESULTS / "cloud_e2e.json").write_text(json.dumps(result, indent=2, ensure_ascii=False) + "\n")
+    (RESULTS / out).write_text(json.dumps(result, indent=2, ensure_ascii=False) + "\n")
     print(f"{result['passed']}/{result['total']} checks passed")
 
 
@@ -264,5 +267,8 @@ if __name__ == "__main__":
     p = argparse.ArgumentParser()
     p.add_argument("--restore", type=int, default=200, help="записей истории для восстановления")
     p.add_argument("--bulk", type=int, default=0, help="первичная выгрузка N записей (0 — пропустить)")
+    p.add_argument("--bulk-repeat", type=int, default=1, help="сколько выгрузок подряд")
+    p.add_argument("--no-scenario", action="store_true", help="только выгрузки (проверка троттлинга)")
+    p.add_argument("--out", default="cloud_e2e.json")
     a = p.parse_args()
-    asyncio.run(main(a.restore, a.bulk))
+    asyncio.run(main(a.restore, a.bulk, a.bulk_repeat, not a.no_scenario, a.out))

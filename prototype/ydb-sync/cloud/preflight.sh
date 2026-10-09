@@ -8,13 +8,16 @@ P="${NAME_PREFIX:-mp-sync-proto}"
 if [[ -z "${FOLDER_ID:-}" ]]; then
   FOLDER_ID=$(yc resource-manager folder get --name "${FOLDER_NAME:-money-planner}" --format json | jq -r .id)
 fi
-Y() { yc --folder-id "$FOLDER_ID" "$@" --format json; }
+Y() { yc --endpoint api.cloud.yandex.net:443 --folder-id "$FOLDER_ID" "$@" --format json; }
 echo "Каталог: $FOLDER_ID ($(yc resource-manager folder get --id "$FOLDER_ID" --format json | jq -r .name))"
 clash=0
 show() {  # $1 — заголовок, остальное — команда yc, возвращающая список с полем name
   local title=$1; shift
   local names
-  names=$(Y "$@" 2>/dev/null | jq -r '.[]?.name' || true)
+  # Ошибка CLI — это «не проверено», а не «ресурсов нет»: останавливаемся.
+  local raw
+  if ! raw=$(Y "$@" 2>&1); then echo "ОШИБКА проверки ($title): $raw" >&2; exit 2; fi
+  names=$(echo "$raw" | jq -r '.[]?.name')
   printf '%-28s %s\n' "$title:" "$(echo "${names:-—}" | paste -sd ',' - | sed 's/,/, /g')"
   if echo "$names" | grep -q "^$P"; then clash=1; fi
 }

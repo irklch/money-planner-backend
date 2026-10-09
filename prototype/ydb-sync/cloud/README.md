@@ -1,6 +1,6 @@
 # Облачный этап — требует подтверждения
 
-Ничего из этого не запускалось. `deploy.sh` создаёт платные ресурсы и без `CONFIRM_PAID_RESOURCES=yes` сразу завершается.
+**Выполнен 09.10.2026** с подтверждения владельца; ресурсы удалены. Результаты — [REPORT.md](../REPORT.md) §P2.3, сырые данные — `bench/results/cloud_*.json`. `deploy.sh` создаёт платные ресурсы и без `CONFIRM_PAID_RESOURCES=yes` сразу завершается. Перед ним обязательно `preflight.sh` (только чтение).
 
 ## Что создаётся
 
@@ -47,9 +47,9 @@
    ```bash
    export GATEWAY_URL=https://<домен шлюза>
    export SYNC_JWT_SECRET=$(yc lockbox payload get --name mp-sync-proto-jwt --key jwt)
-   python -m cloud.measure --idle 1,5,15,30          # холодный и тёплый старт, восстановление 1000 записей
-   python -m bench.bench --target url --url "$GATEWAY_URL" -n 30 --out cloud_benchmark.json
-   python -m bench.cost_model bench/results/cloud_benchmark.json   # при наличии storage/variants
+   python -m cloud.e2e --restore 200 --bulk 1000                     # сценарии sync через шлюз, RU по операциям
+   python -m cloud.e2e --no-scenario --bulk 1000 --bulk-repeat 3 --out cloud_throttling.json   # троттлинг
+   python -m cloud.measure --idle 1,5,15 --history 200               # холодный и тёплый старт
    ```
 4. `./cloud/teardown.sh`
 

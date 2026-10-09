@@ -18,7 +18,8 @@ TAG="${TAG:-$(git rev-parse --short HEAD)}"
 cd "$(dirname "$0")/.."
 # Все команды — с явным --folder-id: глобальный профиль yc оператора не меняется.
 export YC_FOLDER_ID="$FOLDER_ID"
-Y() { yc --folder-id "$FOLDER_ID" "$@"; }
+# Явный endpoint: без него `yc serverless ...` в CLI 1.40 падает с «endpoint should be set».
+Y() { yc --endpoint api.cloud.yandex.net:443 --folder-id "$FOLDER_ID" "$@"; }
 
 echo "== 0. Предпроверка: ни одного ресурса с префиксом $P в каталоге (существующие ресурсы не трогаем)"
 ./cloud/preflight.sh
@@ -61,7 +62,7 @@ Y container registry add-access-binding "$REGISTRY_ID" --role container-registry
 # Вход в реестр краткоживущим IAM-токеном (12 ч), без изменения credential helper Docker.
 yc iam create-token | docker login --username iam --password-stdin cr.yandex
 IMAGE="cr.yandex/$REGISTRY_ID/sync-proto:$TAG"
-docker build --platform linux/amd64 -t "$IMAGE" .
+docker build --platform linux/amd64 --provenance=false --sbom=false -t "$IMAGE" .
 docker push "$IMAGE"
 
 echo "== 5. Схема YDB (выполняет оператор своим IAM-токеном, не контейнер)"
@@ -84,7 +85,9 @@ Y serverless container add-access-binding "$P-api" --role serverless.containers.
 
 echo "== 7. API Gateway"
 CONTAINER_ID="$CONTAINER_ID" GATEWAY_SA_ID="$GATEWAY_SA" envsubst < cloud/api-gateway.yaml > "${TMPDIR:-/tmp}/$P-gw.yaml"
-Y serverless api-gateway create --name "$P-gw" --spec "${TMPDIR:-/tmp}/$P-gw.yaml"
+# Логи шлюза — в группу прототипа: иначе Cloud Logging создаёт в каталоге группу `default`.
+Y serverless api-gateway create --name "$P-gw" --spec "${TMPDIR:-/tmp}/$P-gw.yaml" \
+  --log-group-name "$P-logs" --min-log-level warn
 rm -f "${TMPDIR:-/tmp}/$P-gw.yaml"
 GW_DOMAIN=$(Y serverless api-gateway get "$P-gw" --format json | jq -r .domain)
 

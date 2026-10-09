@@ -5,7 +5,8 @@
 set -euo pipefail
 : "${FOLDER_ID:?set FOLDER_ID}"
 P="${NAME_PREFIX:-mp-sync-proto}"
-Y() { yc --folder-id "$FOLDER_ID" "$@"; }
+# Явный endpoint: без него `yc serverless ...` в CLI 1.40 падает с «endpoint should be set».
+Y() { yc --endpoint api.cloud.yandex.net:443 --folder-id "$FOLDER_ID" "$@"; }
 # Удаление в обратном порядке зависимостей; «|| true» — ресурса уже может не быть (повторный запуск).
 Y serverless api-gateway delete "$P-gw" || true
 Y serverless container delete "$P-api" || true

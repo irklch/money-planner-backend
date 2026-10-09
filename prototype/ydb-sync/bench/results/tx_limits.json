@@ -3,35 +3,35 @@
     "mutations": 500,
     "payload_bytes": 555000,
     "ok": true,
-    "ru": 3,
-    "seconds": 0.13
+    "ru": 8,
+    "seconds": 0.4
   },
   {
     "mutations": 2000,
     "payload_bytes": 2220000,
     "ok": true,
-    "ru": 8,
-    "seconds": 0.51
+    "ru": 28,
+    "seconds": 1.18
   },
   {
     "mutations": 5000,
     "payload_bytes": 5550000,
     "ok": true,
-    "ru": 24,
-    "seconds": 1.19
+    "ru": 61,
+    "seconds": 2.51
   },
   {
     "mutations": 10000,
     "payload_bytes": 11100000,
     "ok": true,
-    "ru": 63,
-    "seconds": 2.48
+    "ru": 104,
+    "seconds": 5.53
   },
   {
     "mutations": 20000,
     "payload_bytes": 22200000,
     "ok": true,
-    "ru": 17,
-    "seconds": 4.96
+    "ru": 39,
+    "seconds": 12.5
   }
 ]

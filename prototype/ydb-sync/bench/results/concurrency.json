@@ -1,8 +1,8 @@
 {
   "concurrent_pushes": 8,
   "mutations_each": 5,
-  "tx_attempts_total": 32,
-  "tx_conflicts_retried": 24,
+  "tx_attempts_total": 31,
+  "tx_conflicts_retried": 23,
   "max_attempts_one_push": 7,
-  "concurrent_pulls": 19
+  "concurrent_pulls": 20
 }
