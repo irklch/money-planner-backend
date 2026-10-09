@@ -1,24 +1,36 @@
 #!/usr/bin/env bash
-# Удаляет все ресурсы облачного эксперимента (имена из deploy.sh). Данные YDB удаляются безвозвратно —
-# в базе только синтетические данные прототипа.
-# -e — остановиться на первой ошибке, -u — ошибка при неизвестной переменной, pipefail — ошибки в конвейерах.
+# Удаляет ТОЛЬКО ресурсы облачного эксперимента (имена с префиксом из deploy.sh) и проверяет,
+# что их не осталось. Данные YDB удаляются безвозвратно — в базе только синтетические данные.
+#   FOLDER_ID=b1g... ./cloud/teardown.sh
 set -euo pipefail
 : "${FOLDER_ID:?set FOLDER_ID}"
 P="${NAME_PREFIX:-mp-sync-proto}"
-yc config set folder-id "$FOLDER_ID"
+Y() { yc --folder-id "$FOLDER_ID" "$@"; }
 # Удаление в обратном порядке зависимостей; «|| true» — ресурса уже может не быть (повторный запуск).
-yc serverless api-gateway delete "$P-gw" || true
-yc serverless container delete "$P-api" || true
+Y serverless api-gateway delete "$P-gw" || true
+Y serverless container delete "$P-api" || true
 # Реестр нельзя удалить, пока в нём есть образы, — сначала удаляем образы.
-REGISTRY_ID=$(yc container registry get "$P-registry" --format json 2>/dev/null | jq -r .id || true)
+REGISTRY_ID=$(Y container registry get "$P-registry" --format json 2>/dev/null | jq -r .id || true)
 if [[ -n "${REGISTRY_ID:-}" ]]; then
-  for img in $(yc container image list --registry-id "$REGISTRY_ID" --format json | jq -r '.[].id'); do
-    yc container image delete "$img"
+  for img in $(Y container image list --registry-id "$REGISTRY_ID" --format json | jq -r '.[].id'); do
+    Y container image delete "$img"
   done
-  yc container registry delete "$P-registry"
+  Y container registry delete "$P-registry"
 fi
-yc lockbox secret delete "$P-jwt" || true
-yc ydb database delete "$P-db" || true
-yc iam service-account delete "$P-gateway" || true
-yc iam service-account delete "$P-runtime" || true
-echo "teardown done"
+Y lockbox secret delete "$P-jwt" || true
+Y ydb database delete "$P-db" || true
+Y iam service-account delete "$P-gateway" || true
+Y iam service-account delete "$P-runtime" || true
+docker logout cr.yandex >/dev/null 2>&1 || true
+
+echo "== Проверка: ресурсов с префиксом $P не осталось"
+left=0
+for cmd in "ydb database" "serverless container" "serverless api-gateway" "lockbox secret" \
+           "container registry" "iam service-account"; do
+  # shellcheck disable=SC2086
+  names=$(Y $cmd list --format json | jq -r '.[]?.name' | grep "^$P" || true)
+  if [[ -n "$names" ]]; then echo "ОСТАЛОСЬ ($cmd): $names"; left=1; fi
+done
+# Lockbox удаляет секрет не мгновенно (статус DELETING) — повторите проверку позже, если он виден.
+if [[ $left -ne 0 ]]; then echo "teardown НЕ завершён" >&2; exit 1; fi
+echo "teardown done: ресурсов прототипа не осталось"

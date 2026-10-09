@@ -10,13 +10,12 @@ from syncproto.config import Settings
 _SECRET = secrets.token_urlsafe(48)  # одноразовый секрет локального прогона
 
 
-# Settings для заданного префикса таблиц и стратегии.
-def local_settings(prefix: str, strategy: str, collect: bool = False) -> Settings:
+# Settings для заданного префикса таблиц.
+def local_settings(prefix: str, collect: bool = False) -> Settings:
     return Settings(
         env="local",
         ydb_endpoint=os.environ.get("YDB_ENDPOINT", "grpc://localhost:2136"),
         ydb_database=os.environ.get("YDB_DATABASE", "/local"),
         ydb_table_prefix=prefix,
-        sync_strategy=strategy,
         jwt_secret=_SECRET,
     )

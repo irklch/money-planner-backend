@@ -34,25 +34,22 @@ ALL_TEST_USERS = [USER_A, USER_B, *PERM_USERS]
 # Отдельный префикс таблиц, чтобы тесты не трогали данные приложения и benchmark.
 TEST_PREFIX = os.environ.get("YDB_TEST_PREFIX", "ydbsync_test")
 SECRET = secrets.token_urlsafe(48)
-# Обязательные сценарии гоняются на двух стратегиях: B (выбранный вариант) и A с delete wins.
-SCENARIO_STRATEGIES = ["version", "hlc_dw"]
 
 
-# Настройки тестового приложения для стратегии.
-def make_settings(strategy: str) -> Settings:
+# Настройки тестового приложения.
+def make_settings() -> Settings:
     return Settings(
         env="test",
         ydb_endpoint=os.environ.get("YDB_ENDPOINT", "grpc://localhost:2136"),
         ydb_database=os.environ.get("YDB_DATABASE", "/local"),
         ydb_table_prefix=TEST_PREFIX,
-        sync_strategy=strategy,
         jwt_secret=SECRET,
     )
 
 
 # Токен пользователя, подписанный тестовым секретом.
 def token(user_id: str) -> str:
-    return auth.issue_test_token(SECRET, user_id, make_settings("version").jwt_audience)
+    return auth.issue_test_token(SECRET, user_id, make_settings().jwt_audience)
 
 
 class SkewClock:
@@ -71,7 +68,7 @@ class SkewClock:
 # Один раз на запуск: подключиться к YDB и пересоздать тестовые таблицы.
 @pytest.fixture(scope="session")
 async def ydb_pool() -> AsyncIterator[ydb.aio.QuerySessionPool]:
-    s = make_settings("version")
+    s = make_settings()
     try:
         driver = await open_driver(s)
     except (ydb.issues.ConnectionError, ydb.issues.Unavailable, TimeoutError) as e:  # pragma: no cover
@@ -91,16 +88,10 @@ async def store(ydb_pool: ydb.aio.QuerySessionPool) -> YdbStore:
     return st
 
 
-# Параметр стратегии для сценарных тестов.
-@pytest.fixture(params=SCENARIO_STRATEGIES)
-def strategy(request: pytest.FixtureRequest) -> str:
-    return request.param
-
-
 # HTTP-клиент к приложению в памяти (ASGI), без сети.
 @pytest.fixture
-async def http(store: YdbStore, strategy: str) -> AsyncIterator[httpx.AsyncClient]:
-    app = create_app(make_settings(strategy), store=store)
+async def http(store: YdbStore) -> AsyncIterator[httpx.AsyncClient]:
+    app = create_app(make_settings(), store=store)
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://sync.test") as c:
         yield c
 
@@ -121,14 +112,19 @@ def server_view(state: dict) -> dict:
     return {k: (None if r.deleted else r.payload, r.deleted) for k, r in state.items()}
 
 
-async def assert_converged(store: YdbStore, user_id: str, *clients: SyncClient) -> dict:
-    """Два раунда sync всех устройств, затем каждое обязано совпасть с сервером."""
+async def assert_converged(store: YdbStore, user_id: str, *clients: SyncClient, live: bool = False) -> dict:
+    """Два раунда sync всех устройств, затем каждое обязано совпасть с сервером.
+    live=True — сравнивать только живые записи (после очистки tombstones у устройства может
+    остаться локальный tombstone записи, которой на сервере уже нет)."""
     for _ in range(2):
         for c in clients:
             report = await c.sync()
             assert report.ok, f"{c.device_id}: sync failed"
     expected = server_view(await store.server_state(user_id))
+    if live:
+        expected = {k: p for k, (p, deleted) in expected.items() if not deleted}
     for c in clients:
         assert c.outbox_size() == 0, f"{c.device_id}: outbox not empty"
-        assert c.snapshot() == expected, f"{c.device_id} diverged from server"
+        got = c.live() if live else c.snapshot()
+        assert got == expected, f"{c.device_id} diverged from server"
     return expected

@@ -3,7 +3,8 @@
 Отличия от architecture-local-first.md §8.1:
 - индекс `by_version` явно GLOBAL SYNC: ASYNC-индекс eventual и ломает pull по курсору;
 - `COVER` — pull читает только индекс, без lookup в основную таблицу (вариант `cover`);
-- в `sync_records` добавлены `order_ts` (вариант B) и `mutation_id` (диагностика);
+- в `sync_records` добавлены `order_ts` (метка конкурентных конфликтов) и `mutation_id`
+  (повтор после истечения журнала, диагностика); HLC нет;
 - `sync_state.last_version` — единственная «горячая» строка пользователя, через неё
   сериализуются конкурентные push одного пользователя (OCC YDB).
 """
@@ -26,7 +27,6 @@ RECORD_COLUMNS = (
     "updated_at",
     "deleted_at",
     "order_ts",
-    "hlc",
     "device_id",
     "schema_version",
     "mutation_id",
@@ -56,7 +56,6 @@ def ddl(prefix: str, cover: bool = True, mutations_ttl: str = "P30D") -> list[st
             updated_at Timestamp NOT NULL,
             deleted_at Timestamp,
             order_ts Timestamp NOT NULL,
-            hlc Utf8,
             device_id Utf8 NOT NULL,
             schema_version Uint32 NOT NULL,
             mutation_id Utf8 NOT NULL,

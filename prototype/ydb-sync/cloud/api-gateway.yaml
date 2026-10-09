@@ -24,6 +24,7 @@ paths:
       parameters:
         - { name: cursor, in: query, required: false, schema: { type: integer, minimum: 0 } }
         - { name: limit, in: query, required: false, schema: { type: integer, minimum: 1, maximum: 500 } }
+        - { name: horizon, in: query, required: false, schema: { type: integer, minimum: 0 } }
       x-yc-apigateway-integration:
         type: serverless_containers
         container_id: ${CONTAINER_ID}

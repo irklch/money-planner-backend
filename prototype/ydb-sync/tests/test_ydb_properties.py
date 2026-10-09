@@ -35,7 +35,6 @@ def m(
         eid or str(uuid.uuid5(uuid.NAMESPACE_OID, str(i))),
         op,
         base,
-        None,
         ts,
         ts,
         ts if op == "delete" else None,
@@ -60,7 +59,7 @@ def _save(name: str, data: object) -> None:
 # Пачка атомарна: сбой после всех UPSERT в том же запросе или падение между чтением и записью
 # не оставляет ни записей, ни новой версии, ни журнала.
 async def test_batch_is_atomic_when_write_fails(store: YdbStore):
-    engine = SyncEngine(store, "version")
+    engine = SyncEngine(store)
     await engine.push(USER_A, "d1", [m(1), m(2)])
     before = (await store.last_version(USER_A), await store.server_state(USER_A))
 
@@ -71,9 +70,7 @@ async def test_batch_is_atomic_when_write_fails(store: YdbStore):
             self._q_write += '\nSELECT Ensure(1, false, "injected failure after upserts");'
 
     with pytest.raises(ydb.issues.Error):
-        await SyncEngine(Failing(store), "version").push(
-            USER_A, "d1", [m(3), m(4), m(1, base=1, comment="x")]
-        )
+        await SyncEngine(Failing(store)).push(USER_A, "d1", [m(3), m(4), m(1, base=1, comment="x")])
     after = (await store.last_version(USER_A), await store.server_state(USER_A))
     assert after == before  # ни записей, ни версии, ни журнала мутаций
 
@@ -87,7 +84,7 @@ async def test_batch_is_atomic_when_write_fails(store: YdbStore):
 
 # Версии атомарны при конкурентных push одного пользователя, и параллельный pull ничего не пропускает.
 async def test_versions_are_atomic_under_concurrent_pushes_and_pull_never_skips(store: YdbStore):
-    engine = SyncEngine(store, "version")
+    engine = SyncEngine(store)
     n_push, per = 8, 5  # реалистичный максимум устройств ×2; предел конкуренции — в bench
     seen: dict[tuple[str, str], int] = {}
     pulls = 0
@@ -186,7 +183,7 @@ async def test_cost_does_not_grow_with_user_history(store: YdbStore):
     """Фактические RU: pull страницы и push одной записи у пользователя с 3000 записей стоят
     столько же, сколько у пользователя с 30. Значит, сканирования истории нет."""
     big, small = USER_A, USER_B
-    engine = SyncEngine(store, "version")
+    engine = SyncEngine(store)
     for b in range(6):
         await engine.push(big, "seed", [m(f"big-{b}-{j}") for j in range(500)])
     await engine.push(small, "seed", [m(f"small-{j}") for j in range(30)])
@@ -199,12 +196,10 @@ async def test_cost_does_not_grow_with_user_history(store: YdbStore):
     for variant in ("join", "tuple_in"):
         st = YdbStore(store.pool, store.prefix, key_lookup=variant)
         # Прогрев: первое выполнение текста запроса тратит CPU на компиляцию (≈20 RU), это не чтение.
-        _, s_cold = await SyncEngine(st, "version").push(small, "d1", [m(f"warm-{variant}")])
+        _, s_cold = await SyncEngine(st).push(small, "d1", [m(f"warm-{variant}")])
         lookup_variants[f"{variant}_first_execution_ru"] = s_cold.ru
-        _, s_big = await SyncEngine(st, "version").push(big, "d1", [m(f"v-{variant}-{j}") for j in range(10)])
-        _, s_small = await SyncEngine(st, "version").push(
-            small, "d1", [m(f"vs-{variant}-{j}") for j in range(10)]
-        )
+        _, s_big = await SyncEngine(st).push(big, "d1", [m(f"v-{variant}-{j}") for j in range(10)])
+        _, s_small = await SyncEngine(st).push(small, "d1", [m(f"vs-{variant}-{j}") for j in range(10)])
         lookup_variants[variant] = {"push10_big_ru": s_big.ru, "push10_small_ru": s_small.ru}
     _save("cost_vs_history.json", {"by_user_size": out, "key_lookup_variants": lookup_variants})
     assert out["big"]["pull10_ru"] <= out["small"]["pull10_ru"] + 2
@@ -260,7 +255,7 @@ async def test_ttl_actually_deletes_expired_rows(ydb_pool):
 async def test_transaction_size_limits(store: YdbStore):
     """Сколько мутаций с максимальным payload (комментарий 500 символов кириллицей) выдерживает
     одна транзакция push. Лимит API — 500; здесь проверяем запас."""
-    engine = SyncEngine(store, "version")
+    engine = SyncEngine(store)
     big_comment = "ж" * 500
     out = []
     for i, n in enumerate((500, 2000, 5000, 10000, 20000)):

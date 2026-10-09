@@ -8,14 +8,14 @@ serializable-транзакции и при конфликте транзакц�
 from __future__ import annotations
 
 # Здесь — сердце протокола. Хранилища (store_ydb.py, store_memory.py) только читают и пишут данные,
-# а решения о каждой мутации принимает plan_push вместе с выбранной стратегией из resolve.py.
+# а решения о каждой мутации принимает plan_push вместе с правилами из resolve.py.
 import datetime as dt
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 from .models import Mutation, MutationResult, PushPlan, StoredRecord
-from .resolve import STRATEGIES, Strategy
+from .resolve import decide
 
 
 # Снимок состояния пользователя, прочитанный хранилищем в начале транзакции push.
@@ -49,16 +49,32 @@ class OpStats:
     ru_io_formula: int = 0
 
 
-# Страница pull: записи, курсор для следующего запроса, есть ли ещё.
+# Страница pull: записи, курсор для следующего запроса, есть ли ещё, текущий горизонт tombstones.
 @dataclass(slots=True)
 class PullPage:
     records: list[StoredRecord]
     next_cursor: int
     has_more: bool
+    horizon: int = 0
 
 
 class ResyncRequired(Exception):
-    """Курсор старше горизонта очистки tombstones: клиенту нужна полная перезагрузка."""
+    """Клиент мог пропустить очищенные tombstones: нужна полная перезагрузка."""
+
+
+def check_horizon(cursor: int, known_horizon: int, horizon: int) -> None:
+    """410, только если клиент реально мог пропустить удаление.
+
+    Tombstones с версией <= horizon очищены. Клиент с курсором `cursor` видел всё до `cursor`.
+    - cursor == 0 — загрузка с нуля: пропускать нечего;
+    - cursor >= horizon — все очищенные tombstones клиент уже получил;
+    - known_horizon >= horizon — горизонт не сдвигался с прошлого ответа клиенту (например, идёт
+      постраничная загрузка с нуля, начатая уже после очистки): новых пропусков нет.
+    Без третьего условия полная загрузка, начатая после очистки, получала 410 на второй странице,
+    если живых записей ниже горизонта больше одной страницы, и зацикливалась (найдено симуляцией).
+    """
+    if cursor and cursor < horizon and known_horizon < horizon:
+        raise ResyncRequired()
 
 
 # Интерфейс хранилища: push по снимку и плану, pull страницей по курсору.
@@ -67,14 +83,14 @@ class Store(Protocol):
         self, user_id: str, mutations: list[Mutation], planner: Callable[[PushSnapshot], PushPlan]
     ) -> tuple[PushPlan, OpStats]: ...
 
-    async def pull(self, user_id: str, cursor: int, limit: int) -> tuple[PullPage, OpStats]: ...
+    async def pull(
+        self, user_id: str, cursor: int, limit: int, known_horizon: int = 0
+    ) -> tuple[PullPage, OpStats]: ...
 
 
 # Чистое планирование пачки: по снимку и мутациям решить, что записать и что ответить.
 # Чистая — значит без обращений к БД: при повторе транзакции её можно безопасно вызвать ещё раз.
-def plan_push(
-    snap: PushSnapshot, mutations: list[Mutation], device_id: str, strategy: Strategy, now: dt.datetime
-) -> PushPlan:
+def plan_push(snap: PushSnapshot, mutations: list[Mutation], device_id: str, now: dt.datetime) -> PushPlan:
     # Текущая версия и состояние записей; меняются по ходу пачки (мутации видят результат предыдущих).
     version = snap.last_version
     current = dict(snap.records)
@@ -106,8 +122,14 @@ def plan_push(
             if cur is not None and (r.status != "applied" or cur.version != r.version):
                 r.record = cur
             # Повтор применённой мутации тоже участвует в перебазировании следующих мутаций этой записи.
+            # В журнале база уже перебазирована; исходная база цепочки сохраняется так же, как для
+            # новых мутаций. Иначе после повтора [создание, правка] следующая офлайн-правка с базой 0
+            # не попадала в цепочку и, если запись удалена и очищена, создавала её заново
+            # (найдено симуляцией на 1000 историй).
             if r.status == "applied" and r.version is not None and r.base_version is not None:
-                chain[m.key] = (r.base_version, r.version)
+                link = chain.get(m.key)
+                origin = link[0] if link is not None and r.base_version == link[1] else r.base_version
+                chain[m.key] = (origin, r.version)
             plan.results.append(r)
             continue
 
@@ -117,8 +139,8 @@ def plan_push(
         if link is not None and base == link[0]:
             base = link[1]
 
-        # Решение стратегии.
-        d = strategy.decide(cur, m, device_id, now, base)
+        # Решение по правилам варианта B.
+        d = decide(cur, m, device_id, now, base)
         # Применяем: новая версия и новое состояние записи.
         if d.apply:
             version += 1
@@ -130,7 +152,6 @@ def plan_push(
                 created_at=cur.created_at if cur else m.created_at,
                 updated_at=m.updated_at,
                 deleted_at=m.deleted_at if m.op == "delete" else None,
-                hlc=d.hlc,
                 order_ts=d.order_ts or m.updated_at,
                 device_id=device_id,
                 schema_version=m.schema_version,
@@ -146,6 +167,10 @@ def plan_push(
             )
         # Не применяем: возвращаем актуальную запись, чтобы клиент мог её применить.
         else:
+            # Повтор применённой мутации после истечения журнала (текущее состояние — от неё):
+            # следующие правки этой записи в пачке, основанные на той же базе, перебазируются.
+            if d.status == "noop" and cur is not None and cur.mutation_id == m.mutation_id:
+                chain[m.key] = (base, cur.version)
             r = MutationResult(
                 m.mutation_id,
                 d.status,
@@ -166,37 +191,24 @@ def plan_push(
     return plan
 
 
-# Мутация не подходит выбранной стратегии (например, нет HLC) — 422.
-class InvalidMutation(ValueError):
-    pass
-
-
-# Фасад для API и тестов: хранилище + стратегия + часы сервера (в симуляции — виртуальные).
+# Фасад для API и тестов: хранилище + часы сервера (в симуляции — виртуальные).
 class SyncEngine:
-    def __init__(
-        self,
-        store: Store,
-        strategy: str | Strategy = "version",
-        clock: Callable[[], dt.datetime] | None = None,
-    ) -> None:
+    def __init__(self, store: Store, clock: Callable[[], dt.datetime] | None = None) -> None:
         self.store = store
-        self.strategy = STRATEGIES[strategy] if isinstance(strategy, str) else strategy
         self._clock = clock or (lambda: dt.datetime.now(dt.UTC))
 
     async def push(
         self, user_id: str, device_id: str, mutations: list[Mutation]
     ) -> tuple[list[MutationResult], OpStats]:
-        # Для HLC-стратегий метка обязательна в каждой мутации.
-        if self.strategy.needs_hlc and any(m.hlc is None for m in mutations):
-            raise InvalidMutation(f"strategy {self.strategy.name} requires hlc on every mutation")
-
         # План строится внутри транзакции хранилища и при её повторе пересчитывается заново.
         def planner(snap: PushSnapshot) -> PushPlan:
-            return plan_push(snap, mutations, device_id, self.strategy, self._clock())
+            return plan_push(snap, mutations, device_id, self._clock())
 
         plan, stats = await self.store.push(user_id, mutations, planner)
         return plan.results, stats
 
     # Pull — просто чтение страницы из хранилища.
-    async def pull(self, user_id: str, cursor: int, limit: int) -> tuple[PullPage, OpStats]:
-        return await self.store.pull(user_id, cursor, limit)
+    async def pull(
+        self, user_id: str, cursor: int, limit: int, known_horizon: int = 0
+    ) -> tuple[PullPage, OpStats]:
+        return await self.store.pull(user_id, cursor, limit, known_horizon)

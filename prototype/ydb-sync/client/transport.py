@@ -30,7 +30,7 @@ class ResyncRequiredError(Exception):
 
 class Transport(Protocol):
     async def push(self, body: dict[str, Any]) -> dict[str, Any]: ...
-    async def pull(self, cursor: int, limit: int) -> dict[str, Any]: ...
+    async def pull(self, cursor: int, limit: int, horizon: int = 0) -> dict[str, Any]: ...
 
 
 # Счётчики трафика HTTP-транспорта (запросы, байты, заголовки последнего ответа).
@@ -74,8 +74,9 @@ class HttpTransport:
             "POST", "/sync/push", content=content, headers={"Content-Type": "application/json"}
         )
 
-    async def pull(self, cursor: int, limit: int) -> dict[str, Any]:
-        return await self._send("GET", "/sync/pull", params={"cursor": cursor, "limit": limit})
+    async def pull(self, cursor: int, limit: int, horizon: int = 0) -> dict[str, Any]:
+        params = {"cursor": cursor, "limit": limit, "horizon": horizon}
+        return await self._send("GET", "/sync/pull", params=params)
 
 
 # Прямой транспорт: вызывает движок напрямую, но через те же схемы валидации и сериализации,
@@ -92,13 +93,16 @@ class DirectTransport:
         )
         return PushResponse(results=[r.to_api() for r in results]).model_dump(mode="json", by_alias=True)
 
-    async def pull(self, cursor: int, limit: int) -> dict[str, Any]:
+    async def pull(self, cursor: int, limit: int, horizon: int = 0) -> dict[str, Any]:
         try:
-            page, _ = await self.engine.pull(self.user_id, cursor, limit)
+            page, _ = await self.engine.pull(self.user_id, cursor, limit, horizon)
         except ResyncRequired as e:
             raise ResyncRequiredError() from e
         return PullResponse(
-            records=[r.to_api() for r in page.records], next_cursor=page.next_cursor, has_more=page.has_more
+            records=[r.to_api() for r in page.records],
+            next_cursor=page.next_cursor,
+            has_more=page.has_more,
+            horizon=page.horizon,
         ).model_dump(mode="json", by_alias=True)
 
 
@@ -127,7 +131,7 @@ class FaultyTransport:
             raise TransportError("response lost")
         return resp
 
-    async def pull(self, cursor: int, limit: int) -> dict[str, Any]:
+    async def pull(self, cursor: int, limit: int, horizon: int = 0) -> dict[str, Any]:
         if self.offline:
             raise TransportError("offline")
         if self.fail_pull_after_pages is not None and self._pages >= self.fail_pull_after_pages:
@@ -135,4 +139,4 @@ class FaultyTransport:
             self._pages = 0
             raise TransportError("connection reset during pull")
         self._pages += 1
-        return await self.inner.pull(cursor, limit)
+        return await self.inner.pull(cursor, limit, horizon)

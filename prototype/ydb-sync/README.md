@@ -7,8 +7,7 @@
 ```
 syncproto/        сервер
   models.py       контракт API (camelCase) и внутренние структуры
-  resolve.py      правила конфликтов: version (B, выбран), hlc / hlc_dw (A), lww_clock (базовая линия)
-  hlc.py          Hybrid Logical Clock для варианта A
+  resolve.py      правила конфликтов варианта B (утверждён): baseVersion, delete wins, archive wins; без HLC
   engine.py       алгоритм push/pull, чистое планирование пачки
   store_ydb.py    YDB: одна serializable-транзакция на push, snapshot-чтение на pull
   store_memory.py эталонное хранилище в памяти для симуляции
@@ -16,10 +15,10 @@ syncproto/        сервер
   metering.py     перехват x-ydb-consumed-units и подсчёт обращений к YDB
   auth.py         JWT: userId только из подписанного токена
   api.py          FastAPI: /health, POST /sync/push, GET /sync/pull
-client/           тестовый клиент: SQLite + персистентный outbox, транспорт со сбоями, симуляция
-tests/            сценарии (15 обязательных + регрессии), правила, симуляция, свойства YDB
+client/           тестовый клиент: SQLite + персистентный outbox, resync после 410, транспорт со сбоями, симуляция
+tests/            сценарии (15 обязательных + утверждённые решения + регрессии), правила, симуляция, свойства YDB
 bench/            benchmark, модель стоимости, результаты (bench/results/)
-cloud/            облачный этап: deploy/teardown, API Gateway, замер холодного старта — НЕ запускался
+cloud/            облачный этап: preflight (только чтение), deploy/teardown, API Gateway, e2e-сценарии, холодный старт
 ```
 
 ## Локальный запуск
@@ -30,8 +29,8 @@ cloud/            облачный этап: deploy/teardown, API Gateway, за�
 cd prototype/ydb-sync
 docker compose up -d ydb                      # YDB на 127.0.0.1:2136, без аутентификации — только локально
 uv venv --python 3.12 .venv && uv pip install --python .venv -e . --group dev   # или pip install . --group dev
-.venv/bin/pytest -q                           # 60 тестов, ~30 с
-.venv/bin/python -m client.simulate --seeds 1000   # сравнение стратегий, ~1 мин
+.venv/bin/pytest -q                           # 60 тестов, ~1 мин (SIM_SEEDS=1000 — ~2 мин)
+.venv/bin/python -m client.simulate --seeds 1000   # инварианты на 1000 историй, ~1 мин
 .venv/bin/python -m bench.bench -n 30         # benchmark → bench/results/local_benchmark.json
 .venv/bin/python -m bench.cost_model          # → bench/results/cost_model.md
 ```
@@ -58,7 +57,9 @@ docker compose up -d --build api              # http://127.0.0.1:8080/health
 
 Ответ — результат каждой мутации: `applied` (+ `version`), `rejected` (`conflict` | `deleted` | `mutation_id_reused`) или `noop`. Флаги `conflict` и `replayed` и поле `record` с актуальной серверной записью, когда она отличается от клиентской.
 
-`GET /sync/pull?cursor=N&limit=500` возвращает `{records, nextCursor, hasMore}`, удаления приходят как tombstone (`deletedAt`). При курсоре старше горизонта очистки tombstones ответ — `410 resync_required`.
+`GET /sync/pull?cursor=N&limit=500&horizon=H` возвращает `{records, nextCursor, hasMore, horizon}`, удаления приходят как tombstone (`deletedAt`). `410 resync_required` — если курсор старше горизонта очистки tombstones и горизонт сдвинулся после прошлого ответа клиенту (`horizon`). Клиент тогда делает возобновляемую полную перезагрузку, сохраняя outbox (`SyncClient.resync`).
+
+Синхронизируются только `expense` (одна сущность для ручных и импортированных расходов) и `category` (`isArchived`; удаление категории = архивирование, `op=delete` для категории — `422`). Правила конфликтов — [resolve.py](syncproto/resolve.py) и docs/architecture-local-first.md §8.
 
 Ограничения: 500 мутаций и 1 МБ на push, 500 записей на страницу pull. При исчерпании повторов транзакции — `503` + `Retry-After` (push идемпотентен).
 

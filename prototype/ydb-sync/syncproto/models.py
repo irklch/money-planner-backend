@@ -21,7 +21,9 @@ from typing import Annotated, Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator, model_validator
 from pydantic.alias_generators import to_camel
 
-# Синхронизируемые сущности прототипа и операции над ними (удаление — это tombstone, а не DELETE).
+# Синхронизируемые сущности: только расходы и категории. app_settings, черновик импорта и состояние
+# UI остаются на устройстве и через sync не передаются (типа для них нет — сервер вернёт 422).
+# Удаление — это tombstone, а не DELETE.
 EntityType = Literal["expense", "category"]
 Op = Literal["upsert", "delete"]
 
@@ -40,6 +42,8 @@ class _Api(BaseModel):
 
 
 # Форма расхода: сумма > 0 с 2 знаками, категория, дата, комментарий до 500 символов.
+# Единая сущность Expense: ручные и импортированные расходы не различаются. У импортированного
+# расхода название операции из выписки записано в comment; после сохранения он ведёт себя как ручной.
 class ExpensePayload(_Api):
     amount: Annotated[Decimal, Field(gt=0, max_digits=14, decimal_places=2)]
     category_id: uuid.UUID
@@ -48,9 +52,12 @@ class ExpensePayload(_Api):
 
 
 # Форма категории: название 1–64 символа, эмодзи необязателен.
+# isArchived — «удалённая» пользователем категория: недоступна для новых расходов, но существующие
+# расходы и аналитика продолжают на неё ссылаться. Синхронизируется как обычное поле.
 class CategoryPayload(_Api):
     name: Annotated[str, StringConstraints(min_length=1, max_length=64, strip_whitespace=True)]
     emoji: Annotated[str, StringConstraints(max_length=16)] | None = None
+    is_archived: bool = False
 
 
 # Какой схемой проверять payload для каждого типа сущности.
@@ -65,11 +72,9 @@ class MutationIn(_Api):
     entity_type: EntityType
     entity_id: uuid.UUID
     op: Op
-    # Вариант B: серверная версия записи, на которой основано изменение (0 — новая запись).
+    # Серверная версия записи, на которой основано изменение (0 — новая запись).
     base_version: Annotated[int, Field(ge=0)] = 0
-    # Вариант A: HLC клиента. Формат "<ms:15>.<counter:6>".
-    hlc: Annotated[str, StringConstraints(pattern=r"^\d{15}\.\d{6}$")] | None = None
-    # Время создания записи и время изменения (часы клиента; в B — только для конкурентных конфликтов).
+    # Время создания записи и время изменения (часы клиента; только для конкурентных конфликтов).
     created_at: dt.datetime
     updated_at: dt.datetime
     # Заполняется только для op=delete.
@@ -92,6 +97,9 @@ class MutationIn(_Api):
         if self.op == "delete":
             if self.deleted_at is None or self.payload is not None:
                 raise ValueError("delete requires deletedAt and null payload")
+            # Категория не удаляется, а архивируется (upsert с isArchived=true).
+            if self.entity_type == "category":
+                raise ValueError("categories are archived (isArchived=true), not deleted")
         else:
             if self.deleted_at is not None or self.payload is None:
                 raise ValueError("upsert requires payload and null deletedAt")
@@ -117,7 +125,6 @@ class RecordOut(_Api):
     created_at: dt.datetime
     updated_at: dt.datetime
     deleted_at: dt.datetime | None
-    hlc: str | None
     device_id: str
     schema_version: int
     payload: dict[str, Any] | None
@@ -125,8 +132,8 @@ class RecordOut(_Api):
 
 # Итог мутации: applied — применена; rejected — отклонена (с причиной); noop — ничего не изменилось.
 Status = Literal["applied", "rejected", "noop"]
-# Причины отказа: конфликт, запись удалена, устаревшая правка (A), повтор mutationId с другим телом.
-Reason = Literal["conflict", "deleted", "stale", "mutation_id_reused"]
+# Причины отказа: конфликт, запись удалена, повтор mutationId с другим телом.
+Reason = Literal["conflict", "deleted", "mutation_id_reused"]
 
 
 # Результат одной мутации в ответе push.
@@ -148,11 +155,13 @@ class PushResponse(_Api):
     results: list[MutationResultOut]
 
 
-# Ответ pull: страница записей, курсор для следующего запроса и признак, есть ли ещё.
+# Ответ pull: страница записей, курсор для следующего запроса, признак, есть ли ещё, и текущий
+# горизонт очистки tombstones (клиент присылает его в следующем pull как `horizon`).
 class PullResponse(_Api):
     records: list[RecordOut]
     next_cursor: int
     has_more: bool
+    horizon: int
 
 
 # --- внутреннее представление -----------------------------------------------------------------
@@ -166,7 +175,6 @@ class Mutation:
     entity_id: str
     op: str
     base_version: int
-    hlc: str | None
     created_at: dt.datetime
     updated_at: dt.datetime
     deleted_at: dt.datetime | None
@@ -186,7 +194,6 @@ class Mutation:
             "id": self.entity_id,
             "op": self.op,
             "b": self.base_version,
-            "h": self.hlc,
             "c": _iso(self.created_at),
             "u": _iso(self.updated_at),
             "x": _iso(self.deleted_at),
@@ -206,7 +213,6 @@ class Mutation:
             entity_id=str(m.entity_id),
             op=m.op,
             base_version=m.base_version,
-            hlc=m.hlc,
             created_at=_utc(m.created_at),
             updated_at=_utc(m.updated_at),
             deleted_at=_utc(m.deleted_at) if m.deleted_at else None,
@@ -225,9 +231,7 @@ class StoredRecord:
     created_at: dt.datetime
     updated_at: dt.datetime
     deleted_at: dt.datetime | None
-    # Вариант A: HLC последнего применённого изменения (после обрезки сервером).
-    hlc: str | None
-    # Вариант B: монотонная «логическая» метка записи = max(updatedAt клиента, order_ts основы).
+    # Монотонная «логическая» метка записи = max(updatedAt клиента, order_ts основы).
     order_ts: dt.datetime
     # Устройство, сделавшее последнее изменение; mutation_id — каким изменением получено состояние.
     device_id: str
@@ -253,7 +257,6 @@ class StoredRecord:
             created_at=self.created_at,
             updated_at=self.updated_at,
             deleted_at=self.deleted_at,
-            hlc=self.hlc,
             device_id=self.device_id,
             schema_version=self.schema_version,
             payload=self.payload,

@@ -23,7 +23,7 @@ from fastapi.responses import JSONResponse
 
 from . import auth, schema
 from .config import Settings
-from .engine import InvalidMutation, OpStats, ResyncRequired, Store, SyncEngine
+from .engine import OpStats, ResyncRequired, Store, SyncEngine
 from .models import MAX_PULL_LIMIT, MAX_PUSH_BODY_BYTES, Mutation, PullResponse, PushRequest, PushResponse
 
 # Момент импорта модуля ≈ старт процесса; и метрики старта экземпляра для /health (холодный старт).
@@ -68,8 +68,8 @@ def create_app(settings: Settings | None = None, store: Store | None = None) -> 
             _STARTUP.update(
                 driver_ready_ms=round((t1 - t0) * 1000, 1), first_query_ms=round((t2 - t1) * 1000, 1)
             )
-        # Движок sync с выбранной стратегией.
-        app.state.engine = SyncEngine(app.state.store, s.sync_strategy)
+        # Движок sync (вариант B).
+        app.state.engine = SyncEngine(app.state.store)
         _STARTUP.update(
             since_process_start_ms=round((time.perf_counter() - _PROCESS_T0) * 1000, 1), requests_served=0
         )
@@ -90,7 +90,7 @@ def create_app(settings: Settings | None = None, store: Store | None = None) -> 
         settings.validate()
         app.state.settings = settings
         app.state.store = store
-        app.state.engine = SyncEngine(store, settings.sync_strategy)
+        app.state.engine = SyncEngine(store)
 
     # Ошибка формы запроса → 422 со списком полей (без значений).
     @app.exception_handler(RequestValidationError)
@@ -137,11 +137,6 @@ def create_app(settings: Settings | None = None, store: Store | None = None) -> 
         # Push идемпотентен по mutationId — клиент безопасно повторит.
         return JSONResponse({"error": "busy_retry"}, status_code=503, headers={"Retry-After": "1"})
 
-    # Мутация не подходит стратегии (например, нет HLC) → 422.
-    @app.exception_handler(InvalidMutation)
-    async def _invalid(_: Request, exc: Exception) -> JSONResponse:
-        return JSONResponse({"error": "invalid_mutation", "detail": str(exc)}, status_code=422)
-
     # Проверка живости. Подробности (времена старта, память) — только с валидным токеном.
     @app.get("/health")
     async def health(
@@ -154,7 +149,6 @@ def create_app(settings: Settings | None = None, store: Store | None = None) -> 
             return {"status": "ok"}  # публично — без деталей экземпляра
         return {
             "status": "ok",
-            "strategy": s.sync_strategy,
             "env": s.env,
             "startup": {k: v for k, v in _STARTUP.items() if k != "requests_served"},
             "requestsServedByInstance": _STARTUP.get("requests_served", 0),
@@ -175,19 +169,24 @@ def create_app(settings: Settings | None = None, store: Store | None = None) -> 
         _stats_headers(response, stats, t0)
         return PushResponse(results=[r.to_api() for r in results])
 
-    # GET /sync/pull?cursor=N&limit=M — изменения после курсора, по возрастанию версии.
+    # GET /sync/pull?cursor=N&limit=M&horizon=H — изменения после курсора, по возрастанию версии.
+    # horizon — горизонт tombstones из прошлого ответа: 410, только если он с тех пор сдвинулся за курсор.
     @app.get("/sync/pull", response_model=PullResponse, response_model_by_alias=True)
     async def pull(
         response: Response,
         cursor: Annotated[int, Query(ge=0)] = 0,
         limit: Annotated[int, Query(ge=1, le=MAX_PULL_LIMIT)] = MAX_PULL_LIMIT,
+        horizon: Annotated[int, Query(ge=0)] = 0,
         user_id: str = Depends(current_user),
     ) -> PullResponse:
         t0 = time.perf_counter()
-        page, stats = await app.state.engine.pull(user_id, cursor, limit)
+        page, stats = await app.state.engine.pull(user_id, cursor, limit, horizon)
         _stats_headers(response, stats, t0)
         return PullResponse(
-            records=[r.to_api() for r in page.records], next_cursor=page.next_cursor, has_more=page.has_more
+            records=[r.to_api() for r in page.records],
+            next_cursor=page.next_cursor,
+            has_more=page.has_more,
+            horizon=page.horizon,
         )
 
     return app

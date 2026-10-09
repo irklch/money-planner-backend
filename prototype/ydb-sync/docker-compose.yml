@@ -29,7 +29,6 @@ services:
       YDB_AUTH: anonymous
       # Секрет только для локального стенда, генерируется при запуске: см. README.
       SYNC_JWT_SECRET: ${SYNC_JWT_SECRET:-}   # пусто → приложение не стартует
-      SYNC_STRATEGY: ${SYNC_STRATEGY:-version}
       PORT: "8080"
     network_mode: "service:ydb"
     read_only: true

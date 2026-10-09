@@ -13,7 +13,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
-from .engine import OpStats, PullPage, PushSnapshot, ResyncRequired
+from .engine import OpStats, PullPage, PushSnapshot, check_horizon
 from .models import Mutation, PushPlan, StoredRecord
 
 
@@ -54,15 +54,27 @@ class MemoryStore:
         return plan, OpStats()
 
     # Pull: записи с версией больше курсора, по возрастанию версии, не больше limit.
-    async def pull(self, user_id: str, cursor: int, limit: int) -> tuple[PullPage, OpStats]:
+    async def pull(
+        self, user_id: str, cursor: int, limit: int, known_horizon: int = 0
+    ) -> tuple[PullPage, OpStats]:
         u = self.users[user_id]
-        # Курсор старше горизонта очистки — клиенту нужна полная перезагрузка (410).
-        if cursor and cursor < u.tombstone_horizon:
-            raise ResyncRequired()
+        # Клиент мог пропустить очищенные tombstones — нужна полная перезагрузка (410).
+        check_horizon(cursor, known_horizon, u.tombstone_horizon)
         rows = sorted((r for r in u.records.values() if r.version > cursor), key=lambda r: r.version)
         page = rows[:limit]
         next_cursor = page[-1].version if page else cursor
-        return PullPage(page, next_cursor, len(rows) > limit), OpStats()
+        return PullPage(page, next_cursor, len(rows) > limit, u.tombstone_horizon), OpStats()
+
+    # Очистка tombstones с версией <= horizon и сдвиг горизонта (как YdbStore.purge_tombstones).
+    async def purge_tombstones(self, user_id: str, horizon: int) -> None:
+        u = self.users[user_id]
+        async with u.lock:
+            u.records = {k: r for k, r in u.records.items() if not (r.deleted and r.version <= horizon)}
+            u.tombstone_horizon = max(u.tombstone_horizon, horizon)  # горизонт не убывает
+
+    # Последняя выданная версия пользователя.
+    async def last_version(self, user_id: str) -> int:
+        return self.users[user_id].last_version
 
     # Всё серверное состояние пользователя — для проверок в тестах.
     def server_state(self, user_id: str) -> dict[tuple[str, str], StoredRecord]:

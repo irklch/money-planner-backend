@@ -28,7 +28,7 @@ from ydb.retries import retry_operation_async
 # metering — учёт RU и обращений к YDB; schema — список колонок, которые читаем.
 from . import metering
 from .config import Settings
-from .engine import OpStats, PullPage, PushSnapshot, ResyncRequired
+from .engine import OpStats, PullPage, PushSnapshot, check_horizon
 from .models import Mutation, PushPlan, StoredRecord
 from .schema import COVER_COLUMNS
 
@@ -45,7 +45,6 @@ for _name, _type in (
     ("updated_at", T.Timestamp),
     ("deleted_at", ydb.OptionalType(T.Timestamp)),
     ("order_ts", T.Timestamp),
-    ("hlc", ydb.OptionalType(T.Utf8)),
     ("device_id", T.Utf8),
     ("schema_version", T.Uint32),
     ("mutation_id", T.Utf8),
@@ -65,7 +64,7 @@ _LOG_T = (
 # То же описание строки записи в синтаксисе YQL (DECLARE в запросе записи).
 _REC_DECL = (
     "List<Struct<user_id:Utf8, entity_type:Utf8, entity_id:Utf8, version:Uint64, created_at:Timestamp,"
-    " updated_at:Timestamp, deleted_at:Timestamp?, order_ts:Timestamp, hlc:Utf8?, device_id:Utf8,"
+    " updated_at:Timestamp, deleted_at:Timestamp?, order_ts:Timestamp, device_id:Utf8,"
     " schema_version:Uint32, mutation_id:Utf8, payload:Json?, server_updated_at:Timestamp>>"
 )
 # Колонки, которые читаем из sync_records (все, кроме user_id) — совпадают с покрытием индекса.
@@ -95,7 +94,6 @@ def _row_to_record(row: Any) -> StoredRecord:
         created_at=_utc(row["created_at"]),  # type: ignore[arg-type]
         updated_at=_utc(row["updated_at"]),  # type: ignore[arg-type]
         deleted_at=_utc(row["deleted_at"]),
-        hlc=row["hlc"],
         order_ts=_utc(row["order_ts"]),  # type: ignore[arg-type]
         device_id=row["device_id"],
         schema_version=int(row["schema_version"]),
@@ -115,7 +113,6 @@ def _record_to_row(user_id: str, r: StoredRecord, now: dt.datetime) -> dict[str,
         "updated_at": r.updated_at,
         "deleted_at": r.deleted_at,
         "order_ts": r.order_ts,
-        "hlc": r.hlc,
         "device_id": r.device_id,
         "schema_version": r.schema_version,
         "mutation_id": r.mutation_id,
@@ -320,7 +317,9 @@ class YdbStore:
         return plan, stats
 
     # Pull страницы: одно обращение к YDB.
-    async def pull(self, user_id: str, cursor: int, limit: int) -> tuple[PullPage, OpStats]:
+    async def pull(
+        self, user_id: str, cursor: int, limit: int, known_horizon: int = 0
+    ) -> tuple[PullPage, OpStats]:
         stats = OpStats(attempts=0)
         params = {
             "$user_id": (user_id, T.Utf8),
@@ -338,11 +337,11 @@ class YdbStore:
         # Выполнить с повторами; проверить горизонт tombstones; отрезать лишнюю (+1) запись.
         sets = await self._run(attempt, stats)
         state = sets[0][0] if sets and sets[0] else None
-        if cursor and state and cursor < int(state["tombstone_horizon"]):
-            raise ResyncRequired()
+        horizon = int(state["tombstone_horizon"]) if state else 0
+        check_horizon(cursor, known_horizon, horizon)
         rows = [_row_to_record(r) for r in (sets[1] if len(sets) > 1 else [])]
         page, has_more = rows[:limit], len(rows) > limit
-        return PullPage(page, page[-1].version if page else cursor, has_more), stats
+        return PullPage(page, page[-1].version if page else cursor, has_more, horizon), stats
 
     # Обёртка повторов и учёта: сколько RU и обращений к YDB стоила операция (включая повторы).
     async def _run(self, attempt: Callable[[Any], Any], stats: OpStats) -> Any:
@@ -375,11 +374,16 @@ class YdbStore:
         """
         await self.pool.execute_with_retries(q, {"$ids": (user_ids, ydb.ListType(T.Utf8))})
 
-    # Сдвинуть горизонт tombstones — для теста 410 resync_required.
-    async def set_tombstone_horizon(self, user_id: str, horizon: int) -> None:
+    # Очистка tombstones (в production — задача по таймеру): удалить tombstones с версией <= horizon и
+    # сдвинуть горизонт одной транзакцией. Клиент с курсором < horizon получит 410 и сделает resync.
+    # Конкурентный push прочитал sync_state → OCC отменит одну из транзакций, и она повторится.
+    async def purge_tombstones(self, user_id: str, horizon: int) -> None:
         q = f"""
             DECLARE $u AS Utf8; DECLARE $h AS Uint64;
-            UPDATE `{self.prefix}/sync_state` SET tombstone_horizon = $h WHERE user_id = $u;
+            DELETE FROM `{self.prefix}/sync_records`
+            WHERE user_id = $u AND deleted_at IS NOT NULL AND version <= $h;
+            UPDATE `{self.prefix}/sync_state` SET tombstone_horizon = MAX_OF(tombstone_horizon, $h)
+            WHERE user_id = $u;
         """
         await self.pool.execute_with_retries(q, {"$u": (user_id, T.Utf8), "$h": (horizon, T.Uint64)})
 

@@ -97,7 +97,6 @@ def expense(i: int, base: int = 0, entity_id: str | None = None, op: str = "upse
         "entityId": entity_id or str(uuid.uuid4()),
         "op": op,
         "baseVersion": base,
-        "hlc": f"{int(time.time() * 1000):015d}.{i % 1000000:06d}",
         "createdAt": now,
         "updatedAt": now,
         "deletedAt": now if op == "delete" else None,
@@ -341,7 +340,7 @@ async def variants(pool, prefix: str, token_for) -> dict[str, Any]:
         "lookup_tuple_in": YdbStore(pool, prefix, collect_stats=True, key_lookup="tuple_in"),
     }
     for name, store in cases.items():
-        app = create_app(local_settings(prefix, "version", collect=True), store=store)
+        app = create_app(local_settings(prefix, collect=True), store=store)
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://bench") as http:
             user = str(uuid.uuid5(uuid.NAMESPACE_OID, f"variant-{name}"))
             c = Client(http, token_for(user), "dev")
@@ -383,7 +382,7 @@ async def main_local(n: int, out_name: str) -> None:
     from .local import local_settings
 
     prefix = os.environ.get("YDB_BENCH_PREFIX", "ydbsync_bench")
-    s = local_settings(prefix, "version", collect=True)
+    s = local_settings(prefix, collect=True)
     driver = await open_driver(s)
     pool = ydb.aio.QuerySessionPool(driver, size=40)
     await schema.apply(pool, schema.drop_ddl(prefix) + schema.ddl(prefix))

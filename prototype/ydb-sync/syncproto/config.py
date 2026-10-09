@@ -29,8 +29,6 @@ class Settings:
     ydb_sa_key_file: str | None = None
     # Префикс (папка) таблиц — разные префиксы для приложения, тестов и benchmark.
     ydb_table_prefix: str = "ydbsync"
-    # Стратегия конфликтов (см. resolve.py); выбранная — version.
-    sync_strategy: str = "version"
     # Секрет подписи JWT и аудитория токенов.
     jwt_secret: str = ""
     jwt_audience: str = "money-planner-sync-proto"
@@ -49,7 +47,6 @@ class Settings:
             ydb_auth=e.get("YDB_AUTH", cls.ydb_auth),
             ydb_sa_key_file=e.get("YDB_SA_KEY_FILE") or None,
             ydb_table_prefix=e.get("YDB_TABLE_PREFIX", cls.ydb_table_prefix),
-            sync_strategy=e.get("SYNC_STRATEGY", cls.sync_strategy),
             jwt_secret=e.get("SYNC_JWT_SECRET", ""),
             auto_schema=e.get("YDB_AUTO_SCHEMA", "0") == "1",
             collect_stats=e.get("YDB_COLLECT_STATS", "0") == "1",

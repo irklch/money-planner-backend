@@ -1,6 +1,6 @@
 """15 обязательных сценариев синхронизации. Идут через HTTP API (FastAPI in-process) и YDB.
 
-Каждый тест параметризован стратегией: `version` (вариант B) и `hlc_dw` (вариант A + delete wins).
+Правила конфликтов — вариант B (serverVersion + baseVersion, delete wins), см. syncproto/resolve.py.
 """
 
 from __future__ import annotations
@@ -147,7 +147,7 @@ async def test_06b_lost_response_while_other_device_edits(device, store):
 
 # 7. A и B одновременно правят один расход; позже по времени правит B, но синхронизируется первым.
 # Итог у всех — правка B; правка A отклонена как конфликт (LWW по записи).
-async def test_07_concurrent_edit_same_expense(device, store, strategy):
+async def test_07_concurrent_edit_same_expense(device, store):
     ca, cb = SkewClock(), SkewClock()
     a, b = device(USER_A, "phone-a", ca), device(USER_A, "ipad-a", cb)
     e = _exp(a, _cat(a), comment="исходный")
@@ -226,7 +226,8 @@ async def test_09_new_phone_restores_everything_from_cursor_zero(device, store):
     await assert_converged(store, USER_A, a, c)
 
 
-# 10. Pull обрывается после двух страниц; после перезапуска продолжает с сохранённого курсора.
+# 10. Первая загрузка обрывается после двух страниц; после перезапуска продолжает с сохранённого места.
+# Первая загрузка устройства идёт тем же возобновляемым путём, что и resync после 410.
 async def test_10_pull_interrupted_mid_pages_resumes(device, store):
     a = device(USER_A, "phone-a")
     cat = _cat(a)
@@ -237,11 +238,12 @@ async def test_10_pull_interrupted_mid_pages_resumes(device, store):
     c.transport.fail_pull_after(2)
     r = await c.sync()
     assert not r.ok and r.pages == 2
-    assert len(c.snapshot()) == 10 and c.cursor > 0
-    cursor_before = c.cursor
+    assert len(c.snapshot()) == 10 and c.resync_pending
+    cursor_before = int(c._meta("resync_cursor"))
+    assert cursor_before > 0
     c.close()
     c = device(USER_A, "phone-new", pull_limit=5)  # перезапуск после обрыва
-    assert c.cursor == cursor_before
+    assert int(c._meta("resync_cursor")) == cursor_before
     r = await c.sync()
     assert r.ok and r.pulled == 15 and r.pages == 3  # без повторной загрузки первых 10
     assert c.snapshot() == a.snapshot()
@@ -305,7 +307,7 @@ async def test_12_users_are_isolated(device, store, http):
 
 # 13. Три конкурентные правки одной записи во всех 6 порядках прихода дают одно и то же состояние;
 # с удалением среди них — запись удалена при любом порядке.
-async def test_13_same_changes_different_order_converge(store, http, strategy):
+async def test_13_same_changes_different_order_converge(store, http):
     """Три конкурентные правки одной записи (одна база) в разных порядках прихода дают одно
     состояние, а повтор той же пачки — те же результаты."""
     import itertools
@@ -323,7 +325,6 @@ async def test_13_same_changes_different_order_converge(store, http, strategy):
                     "entityId": eid,
                     "op": op,
                     "baseVersion": 1,
-                    "hlc": f"{int((now.timestamp() + sec) * 1000):015d}.000000",
                     "createdAt": now.isoformat(),
                     "updatedAt": ts,
                     "deletedAt": ts if op == "delete" else None,
@@ -404,7 +405,7 @@ async def test_resync_required_after_tombstone_horizon(device, store):
     a = device(USER_A, "phone-a")
     _exp(a, _cat(a))
     await a.sync()
-    await store.set_tombstone_horizon(USER_A, 100)
+    await store.purge_tombstones(USER_A, 100)
     t = FaultyTransport(HttpTransport(a.transport.inner.client, token(USER_A)))
     from client.transport import ResyncRequiredError
 

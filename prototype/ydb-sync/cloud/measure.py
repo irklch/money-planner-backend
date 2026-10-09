@@ -1,11 +1,13 @@
 """Облачные измерения холодного/тёплого старта (запускать только после cloud/deploy.sh).
 
     export GATEWAY_URL=https://<domain>  SYNC_JWT_SECRET=$(yc lockbox payload get ...)
-    python -m cloud.measure --idle 1,5,15,30
+    python -m cloud.measure --idle 1,5,15 --history 200
 
 Для каждого периода простоя: ждём, затем первый запрос (/health с токеном) → признак холодного
 экземпляра (`requestsServedByInstance == 1`), время старта процесса, драйвера YDB и первого
-запроса к YDB; сразу после — push 8, pull 10 и восстановление 1000 записей (новый телефон).
+запроса к YDB; сразу после — push 8, pull 10 и восстановление истории (новый телефон).
+История небольшая (по умолчанию 200 записей), чтобы не упираться в лимит RU/с по умолчанию:
+первичную выгрузку большой истории отдельно проверяет cloud.e2e --bulk.
 Затем 20 тёплых повторов. Результат: bench/results/cloud_coldstart.json.
 """
 
@@ -22,7 +24,7 @@ from pathlib import Path
 
 import httpx
 
-from bench.bench import Client, _push_new, expense
+from bench.bench import Client, expense
 from syncproto import auth
 
 # Результаты пишутся рядом с локальными, в bench/results/.
@@ -45,14 +47,27 @@ async def probe(http: httpx.AsyncClient, token: str) -> dict:
 
 
 # Подготовить историю 1000 записей, затем для каждого периода простоя — холодный замер, потом тёплые.
-async def main(idles: list[float], warm: int) -> None:
+# Push с повтором при 503 (троттлинг RU/с): push идемпотентен по mutationId.
+async def _push_retry(c: Client, muts: list[dict]) -> dict:
+    for delay in (1, 2, 4, 8, 16, 30, 30, 30):
+        try:
+            _, meas = await c.push(muts)
+            return meas
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code != 503:
+                raise
+            await asyncio.sleep(delay)
+    raise RuntimeError("push throttled for too long")
+
+
+async def main(idles: list[float], warm: int, history: int) -> None:
     url, secret = os.environ["GATEWAY_URL"], os.environ["SYNC_JWT_SECRET"]
     token = auth.issue_test_token(secret, USER, "money-planner-sync-proto")
-    out = {"when": dt.datetime.now(dt.UTC).isoformat(), "url": url, "cold": [], "warm": []}
+    out = {"when": dt.datetime.now(dt.UTC).isoformat(), "history": history, "cold": [], "warm": []}
     async with httpx.AsyncClient(base_url=url, timeout=60) as http:
         c = Client(http, token, "cloud-probe")
-        for b in range(2):  # история для восстановления
-            await _push_new(c, 500, b * 500)
+        for off in range(0, history, 100):  # история для восстановления, пачками по 100
+            await _push_retry(c, [expense(off + j) for j in range(min(100, history - off))])
         for idle in idles:
             print(f"idle {idle} min...", flush=True)
             await asyncio.sleep(idle * 60)
@@ -75,7 +90,7 @@ async def main(idles: list[float], warm: int) -> None:
                     **p,
                     "push8": push,
                     "pull10": pull,
-                    "restore_1000_ms": round(restore_ms, 1),
+                    "restore_ms": round(restore_ms, 1),
                     "restore_pages": pages,
                 }
             )
@@ -99,7 +114,8 @@ async def main(idles: list[float], warm: int) -> None:
 
 if __name__ == "__main__":
     a = argparse.ArgumentParser()
-    a.add_argument("--idle", default="1,5,15,30")
+    a.add_argument("--idle", default="1,5,15")
     a.add_argument("--warm", type=int, default=20)
+    a.add_argument("--history", type=int, default=200)
     args = a.parse_args()
-    asyncio.run(main([float(x) for x in args.idle.split(",")], args.warm))
+    asyncio.run(main([float(x) for x in args.idle.split(",")], args.warm, args.history))
