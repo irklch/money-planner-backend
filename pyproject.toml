@@ -26,13 +26,19 @@ dev = [
     "pytest-asyncio>=0.24",
     "openpyxl>=3.1",
     "ruff>=0.6",
+    # Контракт API (E0): валидация OpenAPI 3.1, примеров и тест-векторов
+    "openapi-spec-validator>=0.7.1",
+    "jsonschema>=4.23",
+    "referencing>=0.35",
+    "pyyaml>=6.0",
+    "regex>=2024.4.16",
 ]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "session"
 asyncio_default_test_loop_scope = "session"
-testpaths = ["tests"]
+testpaths = ["tests", "contract/tests"]
 
 [tool.ruff]
 line-length = 110
