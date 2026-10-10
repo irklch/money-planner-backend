@@ -1,0 +1,57 @@
+[
+  {
+    "container_up_to_first_200_ms": 758,
+    "warm_health_ms": 0.8,
+    "startup": {
+      "driver_ready_ms": 7.5,
+      "first_query_ms": 124.8,
+      "since_process_start_ms": 147.5
+    },
+    "maxRssMb": 83.3,
+    "docker_mem": "54.97MiB / 5.772GiB"
+  },
+  {
+    "container_up_to_first_200_ms": 592,
+    "warm_health_ms": 1.0,
+    "startup": {
+      "driver_ready_ms": 6.6,
+      "first_query_ms": 2.9,
+      "since_process_start_ms": 24.5
+    },
+    "maxRssMb": 83.2,
+    "docker_mem": "54.96MiB / 5.772GiB"
+  },
+  {
+    "container_up_to_first_200_ms": 592,
+    "warm_health_ms": 0.9,
+    "startup": {
+      "driver_ready_ms": 7.3,
+      "first_query_ms": 2.2,
+      "since_process_start_ms": 24.5
+    },
+    "maxRssMb": 83.3,
+    "docker_mem": "54.96MiB / 5.772GiB"
+  },
+  {
+    "container_up_to_first_200_ms": 604,
+    "warm_health_ms": 0.9,
+    "startup": {
+      "driver_ready_ms": 6.8,
+      "first_query_ms": 2.4,
+      "since_process_start_ms": 23.9
+    },
+    "maxRssMb": 83.3,
+    "docker_mem": "54.97MiB / 5.772GiB"
+  },
+  {
+    "container_up_to_first_200_ms": 624,
+    "warm_health_ms": 0.9,
+    "startup": {
+      "driver_ready_ms": 6.6,
+      "first_query_ms": 2.3,
+      "since_process_start_ms": 24.5
+    },
+    "maxRssMb": 83.3,
+    "docker_mem": "54.97MiB / 5.772GiB"
+  }
+]

@@ -1,0 +1,513 @@
+{
+  "when": "2026-10-09T20:28:47.399100+00:00",
+  "history": 200,
+  "cold": [
+    {
+      "idle_min": 1.0,
+      "health_ms": 477.9,
+      "cold": false,
+      "startup": {
+        "driver_ready_ms": 227.2,
+        "first_query_ms": 97.9,
+        "since_process_start_ms": 384.8
+      },
+      "maxRssMb": 98.1,
+      "push8": {
+        "latency_ms": 328.33053300055326,
+        "app_ms": 82.2,
+        "ru_header": 53,
+        "ru_formula": 51,
+        "ydb_calls": 2,
+        "attempts": 1,
+        "read_rows": 1,
+        "write_rows": 25,
+        "write_bytes": 7260,
+        "cpu_us": 1060,
+        "tables": {
+          "sync_state": {
+            "read_rows": 1,
+            "write_rows": 1,
+            "write_bytes": 60
+          },
+          "sync_mutations": {
+            "read_rows": 0,
+            "write_rows": 8,
+            "write_bytes": 1744
+          },
+          "sync_records": {
+            "read_rows": 0,
+            "write_rows": 8,
+            "write_bytes": 2728
+          },
+          "by_version(index)": {
+            "read_rows": 0,
+            "write_rows": 8,
+            "write_bytes": 2728
+          }
+        },
+        "request_bytes": 3632,
+        "response_bytes": 1205
+      },
+      "pull10": {
+        "latency_ms": 274.9045529999421,
+        "app_ms": 17.3,
+        "ru_header": 24,
+        "ru_formula": 12,
+        "ydb_calls": 1,
+        "attempts": 1,
+        "read_rows": 12,
+        "write_rows": 0,
+        "write_bytes": 0,
+        "cpu_us": 236,
+        "tables": {
+          "sync_state": {
+            "read_rows": 1,
+            "write_rows": 0,
+            "write_bytes": 0
+          },
+          "by_version(index)": {
+            "read_rows": 11,
+            "write_rows": 0,
+            "write_bytes": 0
+          }
+        },
+        "request_bytes": 0,
+        "response_bytes": 4177
+      },
+      "restore_ms": 303.3,
+      "restore_pages": 1
+    },
+    {
+      "idle_min": 5.0,
+      "health_ms": 3961.4,
+      "cold": true,
+      "startup": {
+        "driver_ready_ms": 226.6,
+        "first_query_ms": 47.1,
+        "since_process_start_ms": 333.1
+      },
+      "maxRssMb": 92.4,
+      "push8": {
+        "latency_ms": 871.0955740007194,
+        "app_ms": 502.4,
+        "ru_header": 304,
+        "ru_formula": 51,
+        "ydb_calls": 2,
+        "attempts": 1,
+        "read_rows": 1,
+        "write_rows": 25,
+        "write_bytes": 7260,
+        "cpu_us": 227780,
+        "tables": {
+          "sync_state": {
+            "read_rows": 1,
+            "write_rows": 1,
+            "write_bytes": 60
+          },
+          "sync_mutations": {
+            "read_rows": 0,
+            "write_rows": 8,
+            "write_bytes": 1744
+          },
+          "sync_records": {
+            "read_rows": 0,
+            "write_rows": 8,
+            "write_bytes": 2728
+          },
+          "by_version(index)": {
+            "read_rows": 0,
+            "write_rows": 8,
+            "write_bytes": 2728
+          }
+        },
+        "request_bytes": 3632,
+        "response_bytes": 1205
+      },
+      "pull10": {
+        "latency_ms": 313.7926180006616,
+        "app_ms": 134.8,
+        "ru_header": 70,
+        "ru_formula": 12,
+        "ydb_calls": 1,
+        "attempts": 1,
+        "read_rows": 12,
+        "write_rows": 0,
+        "write_bytes": 0,
+        "cpu_us": 53449,
+        "tables": {
+          "sync_state": {
+            "read_rows": 1,
+            "write_rows": 0,
+            "write_bytes": 0
+          },
+          "by_version(index)": {
+            "read_rows": 11,
+            "write_rows": 0,
+            "write_bytes": 0
+          }
+        },
+        "request_bytes": 0,
+        "response_bytes": 4177
+      },
+      "restore_ms": 310.5,
+      "restore_pages": 1
+    },
+    {
+      "idle_min": 15.0,
+      "health_ms": 3760.1,
+      "cold": true,
+      "startup": {
+        "driver_ready_ms": 227.2,
+        "first_query_ms": 50.7,
+        "since_process_start_ms": 337.3
+      },
+      "maxRssMb": 92.8,
+      "push8": {
+        "latency_ms": 832.3939210004028,
+        "app_ms": 609.2,
+        "ru_header": 402,
+        "ru_formula": 51,
+        "ydb_calls": 2,
+        "attempts": 1,
+        "read_rows": 1,
+        "write_rows": 25,
+        "write_bytes": 7260,
+        "cpu_us": 300613,
+        "tables": {
+          "sync_state": {
+            "read_rows": 1,
+            "write_rows": 1,
+            "write_bytes": 60
+          },
+          "sync_mutations": {
+            "read_rows": 0,
+            "write_rows": 8,
+            "write_bytes": 1744
+          },
+          "sync_records": {
+            "read_rows": 0,
+            "write_rows": 8,
+            "write_bytes": 2728
+          },
+          "by_version(index)": {
+            "read_rows": 0,
+            "write_rows": 8,
+            "write_bytes": 2728
+          }
+        },
+        "request_bytes": 3632,
+        "response_bytes": 1205
+      },
+      "pull10": {
+        "latency_ms": 393.3027109997056,
+        "app_ms": 184.4,
+        "ru_header": 88,
+        "ru_formula": 12,
+        "ydb_calls": 1,
+        "attempts": 1,
+        "read_rows": 12,
+        "write_rows": 0,
+        "write_bytes": 0,
+        "cpu_us": 66875,
+        "tables": {
+          "sync_state": {
+            "read_rows": 1,
+            "write_rows": 0,
+            "write_bytes": 0
+          },
+          "by_version(index)": {
+            "read_rows": 11,
+            "write_rows": 0,
+            "write_bytes": 0
+          }
+        },
+        "request_bytes": 0,
+        "response_bytes": 4177
+      },
+      "restore_ms": 457.8,
+      "restore_pages": 1
+    }
+  ],
+  "warm": [
+    {
+      "health_ms": 181.7,
+      "cold": false,
+      "startup": {
+        "driver_ready_ms": 227.2,
+        "first_query_ms": 50.7,
+        "since_process_start_ms": 337.3
+      },
+      "maxRssMb": 93.8,
+      "push8_ms": 367.66297899885103,
+      "pull10_ms": 276.42772199942556,
+      "push8_ru": 53,
+      "push8_ru_formula": 51
+    },
+    {
+      "health_ms": 228.4,
+      "cold": false,
+      "startup": {
+        "driver_ready_ms": 227.2,
+        "first_query_ms": 50.7,
+        "since_process_start_ms": 337.3
+      },
+      "maxRssMb": 93.8,
+      "push8_ms": 325.28827900023316,
+      "pull10_ms": 194.25212500027556,
+      "push8_ru": 53,
+      "push8_ru_formula": 51
+    },
+    {
+      "health_ms": 222.7,
+      "cold": false,
+      "startup": {
+        "driver_ready_ms": 227.2,
+        "first_query_ms": 50.7,
+        "since_process_start_ms": 337.3
+      },
+      "maxRssMb": 93.8,
+      "push8_ms": 299.58544700093626,
+      "pull10_ms": 192.4862360010593,
+      "push8_ru": 53,
+      "push8_ru_formula": 51
+    },
+    {
+      "health_ms": 137.7,
+      "cold": false,
+      "startup": {
+        "driver_ready_ms": 227.2,
+        "first_query_ms": 50.7,
+        "since_process_start_ms": 337.3
+      },
+      "maxRssMb": 93.8,
+      "push8_ms": 272.42073900015384,
+      "pull10_ms": 229.108109999288,
+      "push8_ru": 53,
+      "push8_ru_formula": 51
+    },
+    {
+      "health_ms": 226.3,
+      "cold": false,
+      "startup": {
+        "driver_ready_ms": 227.2,
+        "first_query_ms": 50.7,
+        "since_process_start_ms": 337.3
+      },
+      "maxRssMb": 93.8,
+      "push8_ms": 331.2251629995444,
+      "pull10_ms": 214.52558600140037,
+      "push8_ru": 53,
+      "push8_ru_formula": 51
+    },
+    {
+      "health_ms": 147.8,
+      "cold": false,
+      "startup": {
+        "driver_ready_ms": 227.2,
+        "first_query_ms": 50.7,
+        "since_process_start_ms": 337.3
+      },
+      "maxRssMb": 93.8,
+      "push8_ms": 345.7761739991838,
+      "pull10_ms": 195.39477199941757,
+      "push8_ru": 53,
+      "push8_ru_formula": 51
+    },
+    {
+      "health_ms": 137.8,
+      "cold": false,
+      "startup": {
+        "driver_ready_ms": 227.2,
+        "first_query_ms": 50.7,
+        "since_process_start_ms": 337.3
+      },
+      "maxRssMb": 93.8,
+      "push8_ms": 711.135926998395,
+      "pull10_ms": 199.6448549998604,
+      "push8_ru": 991,
+      "push8_ru_formula": 51
+    },
+    {
+      "health_ms": 150.4,
+      "cold": false,
+      "startup": {
+        "driver_ready_ms": 227.2,
+        "first_query_ms": 50.7,
+        "since_process_start_ms": 337.3
+      },
+      "maxRssMb": 93.8,
+      "push8_ms": 277.45603100083827,
+      "pull10_ms": 184.4594930007588,
+      "push8_ru": 53,
+      "push8_ru_formula": 51
+    },
+    {
+      "health_ms": 237.4,
+      "cold": false,
+      "startup": {
+        "driver_ready_ms": 227.2,
+        "first_query_ms": 50.7,
+        "since_process_start_ms": 337.3
+      },
+      "maxRssMb": 93.8,
+      "push8_ms": 330.7907829985197,
+      "pull10_ms": 196.78174699947704,
+      "push8_ru": 53,
+      "push8_ru_formula": 51
+    },
+    {
+      "health_ms": 143.1,
+      "cold": false,
+      "startup": {
+        "driver_ready_ms": 227.2,
+        "first_query_ms": 50.7,
+        "since_process_start_ms": 337.3
+      },
+      "maxRssMb": 93.8,
+      "push8_ms": 258.8036800007103,
+      "pull10_ms": 193.68403800035594,
+      "push8_ru": 53,
+      "push8_ru_formula": 51
+    },
+    {
+      "health_ms": 137.6,
+      "cold": false,
+      "startup": {
+        "driver_ready_ms": 227.2,
+        "first_query_ms": 50.7,
+        "since_process_start_ms": 337.3
+      },
+      "maxRssMb": 93.8,
+      "push8_ms": 895.6577190001553,
+      "pull10_ms": 194.54904800113582,
+      "push8_ru": 376,
+      "push8_ru_formula": 51
+    },
+    {
+      "health_ms": 143.4,
+      "cold": false,
+      "startup": {
+        "driver_ready_ms": 227.2,
+        "first_query_ms": 50.7,
+        "since_process_start_ms": 337.3
+      },
+      "maxRssMb": 93.8,
+      "push8_ms": 297.06066499966255,
+      "pull10_ms": 219.0015019987186,
+      "push8_ru": 53,
+      "push8_ru_formula": 51
+    },
+    {
+      "health_ms": 137.7,
+      "cold": false,
+      "startup": {
+        "driver_ready_ms": 227.2,
+        "first_query_ms": 50.7,
+        "since_process_start_ms": 337.3
+      },
+      "maxRssMb": 93.8,
+      "push8_ms": 320.54557999981625,
+      "pull10_ms": 285.0590590005595,
+      "push8_ru": 53,
+      "push8_ru_formula": 51
+    },
+    {
+      "health_ms": 136.0,
+      "cold": false,
+      "startup": {
+        "driver_ready_ms": 227.2,
+        "first_query_ms": 50.7,
+        "since_process_start_ms": 337.3
+      },
+      "maxRssMb": 93.8,
+      "push8_ms": 395.872559000054,
+      "pull10_ms": 626.5771609996591,
+      "push8_ru": 334,
+      "push8_ru_formula": 51
+    },
+    {
+      "health_ms": 193.7,
+      "cold": false,
+      "startup": {
+        "driver_ready_ms": 227.2,
+        "first_query_ms": 50.7,
+        "since_process_start_ms": 337.3
+      },
+      "maxRssMb": 93.8,
+      "push8_ms": 321.389332999388,
+      "pull10_ms": 176.0038849988632,
+      "push8_ru": 53,
+      "push8_ru_formula": 51
+    },
+    {
+      "health_ms": 160.5,
+      "cold": false,
+      "startup": {
+        "driver_ready_ms": 227.2,
+        "first_query_ms": 50.7,
+        "since_process_start_ms": 337.3
+      },
+      "maxRssMb": 93.8,
+      "push8_ms": 391.228033000516,
+      "pull10_ms": 184.07536399899982,
+      "push8_ru": 53,
+      "push8_ru_formula": 51
+    },
+    {
+      "health_ms": 143.3,
+      "cold": false,
+      "startup": {
+        "driver_ready_ms": 227.2,
+        "first_query_ms": 50.7,
+        "since_process_start_ms": 337.3
+      },
+      "maxRssMb": 93.8,
+      "push8_ms": 379.6292879997054,
+      "pull10_ms": 205.9228569996776,
+      "push8_ru": 53,
+      "push8_ru_formula": 51
+    },
+    {
+      "health_ms": 134.2,
+      "cold": false,
+      "startup": {
+        "driver_ready_ms": 227.2,
+        "first_query_ms": 50.7,
+        "since_process_start_ms": 337.3
+      },
+      "maxRssMb": 93.8,
+      "push8_ms": 244.9805539999943,
+      "pull10_ms": 175.66794200138247,
+      "push8_ru": 53,
+      "push8_ru_formula": 51
+    },
+    {
+      "health_ms": 137.4,
+      "cold": false,
+      "startup": {
+        "driver_ready_ms": 227.2,
+        "first_query_ms": 50.7,
+        "since_process_start_ms": 337.3
+      },
+      "maxRssMb": 93.8,
+      "push8_ms": 281.31611500066356,
+      "pull10_ms": 207.85560800140956,
+      "push8_ru": 53,
+      "push8_ru_formula": 51
+    },
+    {
+      "health_ms": 146.1,
+      "cold": false,
+      "startup": {
+        "driver_ready_ms": 227.2,
+        "first_query_ms": 50.7,
+        "since_process_start_ms": 337.3
+      },
+      "maxRssMb": 93.8,
+      "push8_ms": 388.3351619988389,
+      "pull10_ms": 181.35296599939466,
+      "push8_ru": 53,
+      "push8_ru_formula": 51
+    }
+  ]
+}

@@ -1,0 +1,634 @@
+{
+  "when": "2026-10-09T20:28:27.705523+00:00",
+  "checks": {
+    "health без токена отдаёт только статус": true,
+    "pull без токена → 401": true,
+    "чужой секрет → 401": true,
+    "B получил созданные A расходы": true,
+    "правка дошла до B": true,
+    "удаление дошло до B (tombstone)": true,
+    "конфликт двух устройств сошёлся к правке B": true,
+    "повтор после потерянного ответа: применено ровно один раз": true,
+    "архивирование категории дошло до B": true,
+    "новое устройство восстановило всю историю": true,
+    "первичная выгрузка 1000 записей завершилась": true
+  },
+  "passed": 11,
+  "total": 11,
+  "timings": {
+    "seed_history": {
+      "records": 200,
+      "sync_attempts": 1,
+      "seconds": 0.8
+    },
+    "restore_new_device": {
+      "sync_attempts": 1,
+      "seconds": 0.2
+    },
+    "bulk_upload": {
+      "records": 1001,
+      "sync_attempts": 1,
+      "busy_503": 0,
+      "seconds": 2.8
+    }
+  },
+  "by_step": {
+    "first_sync_empty GET /sync/pull": {
+      "requests": 2,
+      "ru": 71,
+      "latency_ms_p50": 597.0,
+      "latency_ms_max": 597.0
+    },
+    "create_push POST /sync/push": {
+      "requests": 1,
+      "ru": 292,
+      "latency_ms_p50": 688.6,
+      "latency_ms_max": 688.6
+    },
+    "create_push GET /sync/pull": {
+      "requests": 1,
+      "ru": 8,
+      "latency_ms_p50": 235.8,
+      "latency_ms_max": 235.8
+    },
+    "pull_new GET /sync/pull": {
+      "requests": 1,
+      "ru": 8,
+      "latency_ms_p50": 175.2,
+      "latency_ms_max": 175.2
+    },
+    "edit POST /sync/push": {
+      "requests": 1,
+      "ru": 16,
+      "latency_ms_p50": 455.4,
+      "latency_ms_max": 455.4
+    },
+    "edit GET /sync/pull": {
+      "requests": 2,
+      "ru": 8,
+      "latency_ms_p50": 285.3,
+      "latency_ms_max": 285.3
+    },
+    "delete POST /sync/push": {
+      "requests": 1,
+      "ru": 16,
+      "latency_ms_p50": 460.7,
+      "latency_ms_max": 460.7
+    },
+    "delete GET /sync/pull": {
+      "requests": 2,
+      "ru": 8,
+      "latency_ms_p50": 209.2,
+      "latency_ms_max": 209.2
+    },
+    "conflict POST /sync/push": {
+      "requests": 2,
+      "ru": 25,
+      "latency_ms_p50": 569.9,
+      "latency_ms_max": 569.9
+    },
+    "conflict GET /sync/pull": {
+      "requests": 3,
+      "ru": 10,
+      "latency_ms_p50": 184.7,
+      "latency_ms_max": 233.7
+    },
+    "retry_lost_response POST /sync/push": {
+      "requests": 2,
+      "ru": 17,
+      "latency_ms_p50": 241.2,
+      "latency_ms_max": 241.2
+    },
+    "retry_lost_response GET /sync/pull": {
+      "requests": 2,
+      "ru": 8,
+      "latency_ms_p50": 233.3,
+      "latency_ms_max": 233.3
+    },
+    "archive_category POST /sync/push": {
+      "requests": 2,
+      "ru": 27,
+      "latency_ms_p50": 225.7,
+      "latency_ms_max": 225.7
+    },
+    "archive_category GET /sync/pull": {
+      "requests": 4,
+      "ru": 414,
+      "latency_ms_p50": 210.8,
+      "latency_ms_max": 243.6
+    },
+    "seed_history POST /sync/push": {
+      "requests": 1,
+      "ru": 1302,
+      "latency_ms_p50": 504.8,
+      "latency_ms_max": 504.8
+    },
+    "seed_history GET /sync/pull": {
+      "requests": 2,
+      "ru": 404,
+      "latency_ms_p50": 245.3,
+      "latency_ms_max": 245.3
+    },
+    "restore_new_device GET /sync/pull": {
+      "requests": 1,
+      "ru": 412,
+      "latency_ms_p50": 221.8,
+      "latency_ms_max": 221.8
+    },
+    "bulk_upload_1000 GET /sync/pull": {
+      "requests": 4,
+      "ru": 2013,
+      "latency_ms_p50": 261.4,
+      "latency_ms_max": 421.9
+    },
+    "bulk_upload_1000 POST /sync/push": {
+      "requests": 3,
+      "ru": 6041,
+      "latency_ms_p50": 602.7,
+      "latency_ms_max": 681.9
+    }
+  },
+  "requests": [
+    {
+      "step": "first_sync_empty",
+      "device": "phone-a",
+      "method": "GET",
+      "path": "/sync/pull",
+      "status": 200,
+      "latency_ms": 597.0,
+      "ru": 70,
+      "ydb_calls": 1,
+      "attempts": 1,
+      "app_ms": 189.7,
+      "ru_formula": 0
+    },
+    {
+      "step": "first_sync_empty",
+      "device": "ipad-b",
+      "method": "GET",
+      "path": "/sync/pull",
+      "status": 200,
+      "latency_ms": 254.9,
+      "ru": 1,
+      "ydb_calls": 1,
+      "attempts": 1,
+      "app_ms": 35.1,
+      "ru_formula": 0
+    },
+    {
+      "step": "create_push",
+      "device": "phone-a",
+      "method": "POST",
+      "path": "/sync/push",
+      "status": 200,
+      "latency_ms": 688.6,
+      "ru": 292,
+      "ydb_calls": 2,
+      "attempts": 1,
+      "app_ms": 484.5,
+      "ru_formula": 20
+    },
+    {
+      "step": "create_push",
+      "device": "phone-a",
+      "method": "GET",
+      "path": "/sync/pull",
+      "status": 200,
+      "latency_ms": 235.8,
+      "ru": 8,
+      "ydb_calls": 1,
+      "attempts": 1,
+      "app_ms": 36.6,
+      "ru_formula": 4
+    },
+    {
+      "step": "pull_new",
+      "device": "ipad-b",
+      "method": "GET",
+      "path": "/sync/pull",
+      "status": 200,
+      "latency_ms": 175.2,
+      "ru": 8,
+      "ydb_calls": 1,
+      "attempts": 1,
+      "app_ms": 20.4,
+      "ru_formula": 4
+    },
+    {
+      "step": "edit",
+      "device": "phone-a",
+      "method": "POST",
+      "path": "/sync/push",
+      "status": 200,
+      "latency_ms": 455.4,
+      "ru": 16,
+      "ydb_calls": 2,
+      "attempts": 1,
+      "app_ms": 265.2,
+      "ru_formula": 13
+    },
+    {
+      "step": "edit",
+      "device": "phone-a",
+      "method": "GET",
+      "path": "/sync/pull",
+      "status": 200,
+      "latency_ms": 178.5,
+      "ru": 4,
+      "ydb_calls": 1,
+      "attempts": 1,
+      "app_ms": 22.3,
+      "ru_formula": 2
+    },
+    {
+      "step": "edit",
+      "device": "ipad-b",
+      "method": "GET",
+      "path": "/sync/pull",
+      "status": 200,
+      "latency_ms": 285.3,
+      "ru": 4,
+      "ydb_calls": 1,
+      "attempts": 1,
+      "app_ms": 20.7,
+      "ru_formula": 2
+    },
+    {
+      "step": "delete",
+      "device": "phone-a",
+      "method": "POST",
+      "path": "/sync/push",
+      "status": 200,
+      "latency_ms": 460.7,
+      "ru": 16,
+      "ydb_calls": 2,
+      "attempts": 1,
+      "app_ms": 271.6,
+      "ru_formula": 13
+    },
+    {
+      "step": "delete",
+      "device": "phone-a",
+      "method": "GET",
+      "path": "/sync/pull",
+      "status": 200,
+      "latency_ms": 179.1,
+      "ru": 4,
+      "ydb_calls": 1,
+      "attempts": 1,
+      "app_ms": 25.7,
+      "ru_formula": 2
+    },
+    {
+      "step": "delete",
+      "device": "ipad-b",
+      "method": "GET",
+      "path": "/sync/pull",
+      "status": 200,
+      "latency_ms": 209.2,
+      "ru": 4,
+      "ydb_calls": 1,
+      "attempts": 1,
+      "app_ms": 23.8,
+      "ru_formula": 2
+    },
+    {
+      "step": "conflict",
+      "device": "ipad-b",
+      "method": "POST",
+      "path": "/sync/push",
+      "status": 200,
+      "latency_ms": 569.9,
+      "ru": 16,
+      "ydb_calls": 2,
+      "attempts": 1,
+      "app_ms": 296.6,
+      "ru_formula": 13
+    },
+    {
+      "step": "conflict",
+      "device": "ipad-b",
+      "method": "GET",
+      "path": "/sync/pull",
+      "status": 200,
+      "latency_ms": 184.7,
+      "ru": 4,
+      "ydb_calls": 1,
+      "attempts": 1,
+      "app_ms": 17.8,
+      "ru_formula": 2
+    },
+    {
+      "step": "conflict",
+      "device": "phone-a",
+      "method": "POST",
+      "path": "/sync/push",
+      "status": 200,
+      "latency_ms": 231.8,
+      "ru": 9,
+      "ydb_calls": 2,
+      "attempts": 1,
+      "app_ms": 49.3,
+      "ru_formula": 6
+    },
+    {
+      "step": "conflict",
+      "device": "phone-a",
+      "method": "GET",
+      "path": "/sync/pull",
+      "status": 200,
+      "latency_ms": 233.7,
+      "ru": 4,
+      "ydb_calls": 1,
+      "attempts": 1,
+      "app_ms": 29.4,
+      "ru_formula": 2
+    },
+    {
+      "step": "conflict",
+      "device": "ipad-b",
+      "method": "GET",
+      "path": "/sync/pull",
+      "status": 200,
+      "latency_ms": 168.3,
+      "ru": 2,
+      "ydb_calls": 1,
+      "attempts": 1,
+      "app_ms": 19.9,
+      "ru_formula": 1
+    },
+    {
+      "step": "retry_lost_response",
+      "device": "phone-a",
+      "method": "POST",
+      "path": "/sync/push",
+      "status": 200,
+      "latency_ms": 241.2,
+      "ru": 11,
+      "ydb_calls": 2,
+      "attempts": 1,
+      "app_ms": 52.9,
+      "ru_formula": 9
+    },
+    {
+      "step": "retry_lost_response",
+      "device": "phone-a",
+      "method": "POST",
+      "path": "/sync/push",
+      "status": 200,
+      "latency_ms": 222.8,
+      "ru": 6,
+      "ydb_calls": 2,
+      "attempts": 1,
+      "app_ms": 55.8,
+      "ru_formula": 3
+    },
+    {
+      "step": "retry_lost_response",
+      "device": "phone-a",
+      "method": "GET",
+      "path": "/sync/pull",
+      "status": 200,
+      "latency_ms": 172.5,
+      "ru": 4,
+      "ydb_calls": 1,
+      "attempts": 1,
+      "app_ms": 21.5,
+      "ru_formula": 2
+    },
+    {
+      "step": "retry_lost_response",
+      "device": "ipad-b",
+      "method": "GET",
+      "path": "/sync/pull",
+      "status": 200,
+      "latency_ms": 233.3,
+      "ru": 4,
+      "ydb_calls": 1,
+      "attempts": 1,
+      "app_ms": 23.2,
+      "ru_formula": 2
+    },
+    {
+      "step": "archive_category",
+      "device": "phone-a",
+      "method": "POST",
+      "path": "/sync/push",
+      "status": 200,
+      "latency_ms": 225.7,
+      "ru": 11,
+      "ydb_calls": 2,
+      "attempts": 1,
+      "app_ms": 56.8,
+      "ru_formula": 9
+    },
+    {
+      "step": "archive_category",
+      "device": "phone-a",
+      "method": "GET",
+      "path": "/sync/pull",
+      "status": 200,
+      "latency_ms": 171.2,
+      "ru": 4,
+      "ydb_calls": 1,
+      "attempts": 1,
+      "app_ms": 20.0,
+      "ru_formula": 2
+    },
+    {
+      "step": "archive_category",
+      "device": "phone-a",
+      "method": "POST",
+      "path": "/sync/push",
+      "status": 200,
+      "latency_ms": 224.4,
+      "ru": 16,
+      "ydb_calls": 2,
+      "attempts": 1,
+      "app_ms": 61.5,
+      "ru_formula": 13
+    },
+    {
+      "step": "archive_category",
+      "device": "phone-a",
+      "method": "GET",
+      "path": "/sync/pull",
+      "status": 200,
+      "latency_ms": 166.0,
+      "ru": 4,
+      "ydb_calls": 1,
+      "attempts": 1,
+      "app_ms": 22.4,
+      "ru_formula": 2
+    },
+    {
+      "step": "archive_category",
+      "device": "ipad-b",
+      "method": "GET",
+      "path": "/sync/pull",
+      "status": 200,
+      "latency_ms": 243.6,
+      "ru": 4,
+      "ydb_calls": 1,
+      "attempts": 1,
+      "app_ms": 87.9,
+      "ru_formula": 2
+    },
+    {
+      "step": "seed_history",
+      "device": "phone-a",
+      "method": "POST",
+      "path": "/sync/push",
+      "status": 200,
+      "latency_ms": 504.8,
+      "ru": 1302,
+      "ydb_calls": 2,
+      "attempts": 1,
+      "app_ms": 230.2,
+      "ru_formula": 1203
+    },
+    {
+      "step": "seed_history",
+      "device": "phone-a",
+      "method": "GET",
+      "path": "/sync/pull",
+      "status": 200,
+      "latency_ms": 245.3,
+      "ru": 402,
+      "ydb_calls": 1,
+      "attempts": 1,
+      "app_ms": 37.4,
+      "ru_formula": 201
+    },
+    {
+      "step": "restore_new_device",
+      "device": "new-phone-c",
+      "method": "GET",
+      "path": "/sync/pull",
+      "status": 200,
+      "latency_ms": 221.8,
+      "ru": 412,
+      "ydb_calls": 1,
+      "attempts": 1,
+      "app_ms": 57.8,
+      "ru_formula": 206
+    },
+    {
+      "step": "seed_history",
+      "device": "phone-a",
+      "method": "GET",
+      "path": "/sync/pull",
+      "status": 200,
+      "latency_ms": 158.2,
+      "ru": 2,
+      "ydb_calls": 1,
+      "attempts": 1,
+      "app_ms": 19.1,
+      "ru_formula": 1
+    },
+    {
+      "step": "archive_category",
+      "device": "ipad-b",
+      "method": "GET",
+      "path": "/sync/pull",
+      "status": 200,
+      "latency_ms": 210.8,
+      "ru": 402,
+      "ydb_calls": 1,
+      "attempts": 1,
+      "app_ms": 50.1,
+      "ru_formula": 201
+    },
+    {
+      "step": "bulk_upload_1000",
+      "device": "bulk-phone",
+      "method": "GET",
+      "path": "/sync/pull",
+      "status": 200,
+      "latency_ms": 194.8,
+      "ru": 1,
+      "ydb_calls": 1,
+      "attempts": 1,
+      "app_ms": 40.3,
+      "ru_formula": 0
+    },
+    {
+      "step": "bulk_upload_1000",
+      "device": "bulk-phone",
+      "method": "POST",
+      "path": "/sync/push",
+      "status": 200,
+      "latency_ms": 602.7,
+      "ru": 3018,
+      "ydb_calls": 2,
+      "attempts": 1,
+      "app_ms": 227.9,
+      "ru_formula": 3002
+    },
+    {
+      "step": "bulk_upload_1000",
+      "device": "bulk-phone",
+      "method": "POST",
+      "path": "/sync/push",
+      "status": 200,
+      "latency_ms": 681.9,
+      "ru": 3012,
+      "ydb_calls": 2,
+      "attempts": 1,
+      "app_ms": 191.7,
+      "ru_formula": 3003
+    },
+    {
+      "step": "bulk_upload_1000",
+      "device": "bulk-phone",
+      "method": "POST",
+      "path": "/sync/push",
+      "status": 200,
+      "latency_ms": 207.5,
+      "ru": 11,
+      "ydb_calls": 2,
+      "attempts": 1,
+      "app_ms": 71.4,
+      "ru_formula": 9
+    },
+    {
+      "step": "bulk_upload_1000",
+      "device": "bulk-phone",
+      "method": "GET",
+      "path": "/sync/pull",
+      "status": 200,
+      "latency_ms": 421.9,
+      "ru": 1004,
+      "ydb_calls": 1,
+      "attempts": 1,
+      "app_ms": 142.4,
+      "ru_formula": 502
+    },
+    {
+      "step": "bulk_upload_1000",
+      "device": "bulk-phone",
+      "method": "GET",
+      "path": "/sync/pull",
+      "status": 200,
+      "latency_ms": 261.4,
+      "ru": 1004,
+      "ydb_calls": 1,
+      "attempts": 1,
+      "app_ms": 63.5,
+      "ru_formula": 502
+    },
+    {
+      "step": "bulk_upload_1000",
+      "device": "bulk-phone",
+      "method": "GET",
+      "path": "/sync/pull",
+      "status": 200,
+      "latency_ms": 243.8,
+      "ru": 4,
+      "ydb_calls": 1,
+      "attempts": 1,
+      "app_ms": 27.7,
+      "ru_formula": 2
+    }
+  ]
+}

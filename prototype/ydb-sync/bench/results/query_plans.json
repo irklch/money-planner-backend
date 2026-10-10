@@ -1,0 +1,40 @@
+{
+  "push_read": {
+    "operators": [
+      "Filter",
+      "InnerJoin (Lookup)",
+      "Iterator",
+      "Limit",
+      "Lookup",
+      "TableLookup",
+      "TablePointLookup",
+      "TableRangeScan"
+    ],
+    "tables": [
+      "sync_mutations",
+      "sync_state",
+      "ydbsync_test/sync_mutations",
+      "ydbsync_test/sync_records",
+      "ydbsync_test/sync_state"
+    ]
+  },
+  "pull": {
+    "operators": [
+      "Limit",
+      "TablePointLookup",
+      "TableRangeScan"
+    ],
+    "tables": [
+      "indexImplTable",
+      "sync_state",
+      "ydbsync_test/sync_records/by_version/indexImplTable",
+      "ydbsync_test/sync_state"
+    ],
+    "ranges": [
+      "[\"user_id ($user_id)\",\"version ($cursor, +∞)\",\"entity_type (-∞, +∞)\",\"entity_id (-∞, +∞)\"]",
+      "[\"user_id ($user_id)\"]",
+      "[\"user_id ($user_id)\",\"version ($cursor, +∞)\",\"entity_type (-∞, +∞)\",\"entity_id (-∞, +∞)\"]",
+      "[\"user_id ($user_id)\"]"
+    ]
+  }
+}

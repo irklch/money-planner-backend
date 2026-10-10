@@ -1,0 +1,8 @@
+# Не копировать в образ: окружение, кэши, результаты измерений, тесты и локальные SQLite-файлы.
+.venv
+__pycache__
+.pytest_cache
+.ruff_cache
+bench/results
+tests
+*.sqlite

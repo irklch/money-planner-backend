@@ -1,0 +1,13 @@
+{
+  "histories": 1000,
+  "writes": 109926,
+  "conflicts": 3048,
+  "purges": 3479,
+  "resyncs": 2544,
+  "violations": {
+    "skew_misorder": 565
+  },
+  "histories_with": {
+    "skew_misorder": 376
+  }
+}
