@@ -36,6 +36,21 @@ jobs:
       - name: OpenAPI contract is up to date
         run: python scripts/openapi.py --check
 
+  # Контракт API v1 (contract/): валидность OpenAPI 3.1, примеры, контрактные тесты. Без БД и без деплоя.
+  openapi:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install --upgrade "pip>=25.1" && pip install . --group dev
+      - name: Contract is valid OpenAPI 3.1
+        run: python scripts/contract_spec.py --check
+      - name: Contract tests
+        run: pytest contract/tests -q
+
   image:
     needs: test
     runs-on: ubuntu-latest

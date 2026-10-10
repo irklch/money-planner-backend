@@ -212,3 +212,16 @@ def test_shared_codes_keep_legacy_semantics(catalog):
     for code in shared:
         status, retryable, _ = LEGACY[code]
         assert (catalog[code]["status"], catalog[code]["retryable"]) == (status, retryable), code
+
+
+def test_doc_catalog_table_matches(catalog):
+    """Таблица кодов в docs/api-contract.md совпадает с каталогом спецификации."""
+    import re
+
+    from conftest import ROOT
+
+    doc = (ROOT / "docs" / "api-contract.md").read_text(encoding="utf-8")
+    rows = dict(re.findall(r"^\| `([a-z_]+)` \| (\d{3}) \|", doc, flags=re.M))
+    assert {code: int(status) for code, status in rows.items()} == {
+        code: e["status"] for code, e in catalog.items()
+    }
