@@ -1,0 +1,1852 @@
+openapi: 3.1.0
+info:
+  title: Money Planner API
+  version: 1.0.0
+  summary: Публичный контракт MVP (local-first) для iOS и будущего Android.
+  description: |
+    Контракт этапа E0 плана миграции (`docs/production-migration-plan.md`, ред. 5.1).
+    Правила совместимости, идемпотентности, повторов, лимитов и формата ошибок —
+    `docs/api-contract.md`. Внутренние эндпоинты `/internal/*` описаны отдельно
+    (`contract/openapi-internal.yaml`) и в API Gateway не публикуются.
+
+    Общие соглашения:
+    - все пути API — под префиксом `/v1` (версия — в пути); `/healthz` — вне версии;
+    - JSON — camelCase; даты — `YYYY-MM-DD` (календарные, без часового пояса);
+      время — RFC 3339 с часовым поясом; суммы — decimal-строки с 2 знаками (RUB);
+    - каждый ответ содержит заголовок `X-Request-Id`;
+    - ошибки — единый конверт `ErrorEnvelope` (модель `09 — Error Model`);
+    - перечисления в ответах расширяемы (`x-extensible-enum: true`): клиент обязан
+      обрабатывать неизвестные значения, неизвестные поля ответа — игнорировать.
+  contact:
+    name: Money Planner backend
+servers:
+  - url: '{origin}'
+    description: Origin API Gateway (staging / prod создаются в E9).
+    variables:
+      origin:
+        default: http://localhost:8000
+tags:
+  - name: service
+    description: Служебные эндпоинты.
+  - name: auth
+    description: Гостевая запись устройства, Sign in with Apple, refresh и выход.
+  - name: account
+    description: Профиль субъекта и удаление аккаунта.
+  - name: sync
+    description: Синхронизация Expense, Category, DayMark (только аккаунт).
+  - name: imports
+    description: Разбор выписок и учёт подтверждённых импортов (гость и аккаунт).
+  - name: apple
+    description: Server-to-server уведомления Sign in with Apple.
+
+x-contract:
+  planRevision: '5.1'
+  stage: E0
+  dayMarkNamespace: 97a5414e-31da-4b51-85c7-7ea3eab0c81d
+  systemCategoryRegistry: contract/system-categories.json
+  configParameters: contract/config-parameters.json
+  commentVectors: contract/vectors/comment.json
+  dayMarkVectors: contract/vectors/day-mark-id.json
+
+# Каталог ошибок: code → HTTP-статус, retryable, назначение. Единственный источник для ErrorCode.
+# retryable=true — клиент может повторить тот же запрос автоматически (§8.1 плана);
+# для token_expired — после /v1/auth/refresh.
+x-error-catalog:
+  invalid_request: {status: 400, retryable: false, description: 'Запрос не разобран (JSON, заголовки, Idempotency-Key).'}
+  apple_token_invalid: {status: 400, retryable: false, description: 'identityToken / authorizationCode / nonce Apple не прошли проверку или nonce уже использован. Клиент заново запускает авторизацию Apple.'}
+  token_expired: {status: 401, retryable: true, description: 'Истёк access JWT. Клиент вызывает /v1/auth/refresh и повторяет запрос.'}
+  access_token_invalid: {status: 401, retryable: false, description: 'Нет access JWT или он не прошёл проверку подписи / формата.'}
+  refresh_token_invalid: {status: 401, retryable: false, description: 'Refresh-токен неизвестен, отозван при reuse detection или истёк.'}
+  session_revoked: {status: 401, retryable: false, description: 'Сессии аккаунта завершены (consent-revoked, ручной отзыв). Локальные данные не удаляются.'}
+  account_deleted: {status: 401, retryable: false, description: 'Аккаунт удаляется или удалён. Клиент выполняет локальную очистку.'}
+  account_required: {status: 403, retryable: false, description: 'Эндпоинт доступен только аккаунту (гостевой токен).'}
+  not_found: {status: 404, retryable: false, description: 'Маршрут не найден.'}
+  import_not_found: {status: 404, retryable: false, description: 'Нет доставки с таким importId для этого устройства.'}
+  deletion_not_found: {status: 404, retryable: false, description: 'Нет задания удаления с таким id для этого устройства.'}
+  method_not_allowed: {status: 405, retryable: false, description: 'Метод не поддерживается.'}
+  idempotency_key_reused: {status: 409, retryable: false, description: 'Idempotency-Key повторён с другим запросом.'}
+  idempotency_in_progress: {status: 409, retryable: true, retryAfter: true, description: 'Запрос с этим Idempotency-Key ещё выполняется. Есть Retry-After.'}
+  resync_required: {status: 410, retryable: false, description: 'Курсор за горизонтом очистки tombstones. Нужен resync с cursor 0.'}
+  delivery_expired: {status: 410, retryable: false, description: 'Доставка результата разбора истекла (7 дней). Попытка не расходуется.'}
+  payload_too_large: {status: 413, retryable: false, description: 'Тело запроса больше лимита.'}
+  file_too_large: {status: 413, retryable: false, description: 'Файл выписки больше IMPORT_MAX_FILE_BYTES.'}
+  unsupported_format: {status: 415, retryable: false, description: 'Формат файла не поддерживается.'}
+  validation_failed: {status: 422, retryable: false, description: 'Запрос разобран, но не прошёл валидацию. Подробности — details[].'}
+  corrupted_file: {status: 422, retryable: false, description: 'Файл не читается.'}
+  unknown_bank: {status: 422, retryable: false, description: 'Структура выписки не распознана.'}
+  empty_statement: {status: 422, retryable: false, description: 'В выписке нет операций.'}
+  income_only: {status: 422, retryable: false, description: 'В выписке только поступления.'}
+  statement_too_large: {status: 422, retryable: false, description: 'Операций больше IMPORT_MAX_OPERATIONS.'}
+  upgrade_required: {status: 426, retryable: false, description: 'Неизвестная schemaVersion. Нужно обновить приложение.'}
+  rate_limited: {status: 429, retryable: true, retryAfter: true, description: 'Превышен лимит частоты или параллельности. Есть Retry-After.'}
+  unconfirmed_imports_limit: {status: 429, retryable: true, retryAfter: true, description: 'Неподтверждённых доставок за 24 ч больше IMPORT_UNCONFIRMED_MAX. Есть Retry-After.'}
+  internal_error: {status: 500, retryable: true, description: 'Внутренняя ошибка.'}
+  processing_failed: {status: 500, retryable: true, description: 'Сбой обработки выписки.'}
+  service_unavailable: {status: 503, retryable: true, retryAfter: true, description: 'Сервис временно недоступен (YDB, Apple, перегрузка экземпляра). Есть Retry-After.'}
+  processing_timeout: {status: 503, retryable: true, retryAfter: true, description: 'Разбор не уложился в IMPORT_PARSE_TIMEOUT_S. Есть Retry-After.'}
+
+paths:
+  /healthz:
+    get:
+      operationId: healthCheck
+      tags: [service]
+      summary: Проверка живости экземпляра.
+      x-subject: none
+      x-stage: E1
+      security: []
+      responses:
+        '200':
+          description: Экземпляр жив.
+          headers:
+            X-Request-Id: {$ref: '#/components/headers/XRequestId'}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Health'}
+        '503': {$ref: '#/components/responses/ServiceUnavailable'}
+
+  /v1/auth/guest:
+    post:
+      operationId: createGuestSession
+      tags: [auth]
+      summary: Создать гостевую техническую запись устройства и сессию.
+      description: |
+        Создаёт `devices(device_id)` и выдаёт гостевые токены (бывший `/auth/anonymous`).
+        Финансовых данных гостя на сервере нет. Лимит — `GUEST_CREATE_RATE_PER_IP`.
+
+        **Идемпотентность.** Клиент генерирует `Idempotency-Key` один раз на установку и
+        повторяет его при сетевых ошибках. В течение 24 ч, пока выданный refresh-токен не
+        использован, не отозван и не истёк, повтор возвращает `201` с
+        `Idempotent-Replayed: true`, тем же `deviceId` и тем же `refreshToken`; `accessToken`
+        выдаётся новый. Иначе — `409 idempotency_key_reused` без токенов и без новой записи.
+      x-subject: none
+      x-stage: E2
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/GuestSessionRequest'}
+            example: {platform: ios, appVersion: 1.0.0}
+      responses:
+        '201':
+          description: Гостевая сессия создана (или повтор в пределах 24 ч).
+          headers:
+            X-Request-Id: {$ref: '#/components/headers/XRequestId'}
+            Idempotent-Replayed: {$ref: '#/components/headers/IdempotentReplayed'}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/GuestSession'}
+              examples:
+                guest: {$ref: '#/components/examples/GuestSession'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '409':
+          description: Ключ уже использован, а выданный по нему refresh-токен ротирован, отозван или истёк.
+          x-error-codes: [idempotency_key_reused]
+          headers:
+            X-Request-Id: {$ref: '#/components/headers/XRequestId'}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ErrorEnvelope'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        '429': {$ref: '#/components/responses/TooManyRequests'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/ServiceUnavailable'}
+
+  /v1/auth/refresh:
+    post:
+      operationId: refreshSession
+      tags: [auth]
+      summary: Ротация refresh-токена (гость и аккаунт).
+      description: |
+        Возвращает новую пару токенов того же субъекта. Повтор того же refresh-токена в
+        grace-окне 60 с возвращает ту же новую пару (потерянный ответ безопасен). Повтор вне
+        окна — reuse: отзывается вся family, ответ `401 refresh_token_invalid`.
+
+        Коды 401 (§2.8 плана): `refresh_token_invalid` — гость создаёт новую гостевую запись,
+        аккаунт переходит в `reauth_required`; `session_revoked` — `reauth_required`, данные и
+        outbox сохраняются; `account_deleted` — локальная очистка, гостевой режим.
+      x-subject: none
+      x-stage: E2
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/RefreshRequest'}
+      responses:
+        '200':
+          description: Новая пара токенов.
+          headers:
+            X-Request-Id: {$ref: '#/components/headers/XRequestId'}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Session'}
+              examples:
+                guest: {$ref: '#/components/examples/GuestSession'}
+                account: {$ref: '#/components/examples/AccountSession'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401':
+          description: Refresh невозможен.
+          x-error-codes: [refresh_token_invalid, session_revoked, account_deleted]
+          headers:
+            X-Request-Id: {$ref: '#/components/headers/XRequestId'}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ErrorEnvelope'}
+              examples:
+                accountDeleted: {$ref: '#/components/examples/ErrorAccountDeleted'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        '429': {$ref: '#/components/responses/TooManyRequests'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/ServiceUnavailable'}
+
+  /v1/auth/apple:
+    post:
+      operationId: signInWithApple
+      tags: [auth]
+      summary: Вход через Apple ID (и повторный вход после session_revoked).
+      description: |
+        Вызывается с **гостевым** токеном устройства. Сервер проверяет `identityToken` по JWKS
+        Apple (`iss`, `aud` = bundle id, `exp`, хэш `nonce`), сразу обменивает
+        `authorizationCode` на Apple refresh token (шифрование KMS), находит или создаёт
+        аккаунт по `(apple, sub)`, связывает устройство и атрибутирует гостевые импорты
+        устройства (однократно, §6.1). Если пришёл новый `authorizationCode` для существующего
+        аккаунта, сохранённый Apple refresh token заменяется.
+
+        Ответ — сессия аккаунта и `sync { lastVersion, hasData }` для выбора сценария входа
+        (§2.3). Клиент сравнивает `accountId` с сохранённым при повторном входе (§2.9).
+
+        **Повтор.** `nonce` и `authorizationCode` одноразовые. Повтор после ошибки, при которой
+        запрос не дошёл до сервера (нет соединения), безопасен. Если запрос мог быть обработан
+        (таймаут ответа), повтор с теми же данными вернёт `400 apple_token_invalid`: клиент
+        запускает авторизацию Apple заново (новые `nonce` и код).
+      x-subject: guest
+      x-stage: E5
+      security:
+        - guestBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/AppleSignInRequest'}
+      responses:
+        '200':
+          description: Вход выполнен.
+          headers:
+            X-Request-Id: {$ref: '#/components/headers/XRequestId'}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AppleSignInResponse'}
+              examples:
+                signedIn: {$ref: '#/components/examples/AppleSignInResponse'}
+        '400':
+          description: Запрос не разобран или учётные данные Apple не прошли проверку.
+          x-error-codes: [invalid_request, apple_token_invalid]
+          headers:
+            X-Request-Id: {$ref: '#/components/headers/XRequestId'}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ErrorEnvelope'}
+        '401': {$ref: '#/components/responses/UnauthorizedGuest'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/ServiceUnavailable'}
+
+  /v1/auth/logout:
+    post:
+      operationId: logout
+      tags: [auth]
+      summary: Отозвать сессию аккаунта на этом устройстве (best-effort).
+      description: |
+        Вызывается после локальной очистки при ручном выходе (§2.4). Авторизация — сам
+        refresh-токен в теле, поэтому вызов работает и при истёкшем access JWT; без сети
+        клиент повторяет его при следующем запуске (фоновая операция §8.1, не отменяется
+        уходом с экрана). Отзывается family этого refresh-токена. Идемпотентно: неизвестный,
+        уже отозванный или истёкший токен — тоже `204`. Облачные данные не удаляются.
+      x-subject: none
+      x-stage: E5
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/LogoutRequest'}
+      responses:
+        '204':
+          description: Сессия отозвана (или уже недействительна).
+          headers:
+            X-Request-Id: {$ref: '#/components/headers/XRequestId'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/ServiceUnavailable'}
+
+  /v1/me:
+    get:
+      operationId: getMe
+      tags: [account]
+      summary: Субъект токена и учёт бесплатных импортов.
+      description: |
+        Гостю — `deviceId` и `features.imports` по счётчику устройства. Аккаунту —
+        дополнительно `accountId`, `sync.lastVersion`, а `features.imports` — по счётчику
+        аккаунта (§6.1). Пока `ENFORCE_QUOTAS=false`, `enforced=false` и импорт не блокируется.
+      x-subject: any
+      x-stage: E4
+      security:
+        - guestBearer: []
+        - accountBearer: []
+      responses:
+        '200':
+          description: Профиль субъекта.
+          headers:
+            X-Request-Id: {$ref: '#/components/headers/XRequestId'}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Me'}
+              examples:
+                guest: {$ref: '#/components/examples/MeGuest'}
+                account: {$ref: '#/components/examples/MeAccount'}
+        '401': {$ref: '#/components/responses/UnauthorizedAny'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/ServiceUnavailable'}
+
+  /v1/account:
+    delete:
+      operationId: deleteAccount
+      tags: [account]
+      summary: Удалить аккаунт и все его данные на сервере.
+      description: |
+        Синхронно: создаётся задание (идемпотентно по аккаунту), `users.state = deleting`,
+        refresh-токены аккаунта отзываются (`account_deleted`), пишется `deleted_accounts`.
+        С этого момента запросы с токеном аккаунта получают `401 account_deleted` — кроме
+        повтора этого `DELETE`: он возвращает `202` с тем же `deletionId` (потерянный ответ
+        безопасен). Затем сервер пытается выполнить шаги ~5 с; не успел — продолжит фоновое
+        задание.
+
+        `authorizationCode` (необязательно) — свежий код Apple с экрана удаления. Нужен, если у
+        сервера нет действующего Apple refresh token для отзыва. Без кода и без токена отзыв
+        пропускается (`appleTokenRevocation = skipped_no_token`), удаление данных продолжается.
+
+        Клиент после `202` сразу выполняет локальную очистку и переходит в гостевой режим.
+      x-subject: account
+      x-stage: E7
+      security:
+        - accountBearer: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/DeleteAccountRequest'}
+      responses:
+        '202':
+          description: Удаление принято (или повтор — тот же deletionId).
+          headers:
+            X-Request-Id: {$ref: '#/components/headers/XRequestId'}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/DeletionAccepted'}
+              examples:
+                accepted: {$ref: '#/components/examples/DeletionAccepted'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/UnauthorizedAccount'}
+        '403': {$ref: '#/components/responses/AccountRequired'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/ServiceUnavailable'}
+
+  /v1/account/deletions/{deletionId}:
+    get:
+      operationId: getAccountDeletion
+      tags: [account]
+      summary: Статус удаления аккаунта (гостевым токеном того же устройства).
+      description: |
+        Доступно только гостевому токену устройства-инициатора (`did` токена совпадает с
+        устройством, вызвавшим `DELETE`). Для любого другого токена — `404 deletion_not_found`
+        (существование задания не раскрывается).
+      x-subject: guest
+      x-stage: E7
+      security:
+        - guestBearer: []
+      parameters:
+        - $ref: '#/components/parameters/DeletionId'
+      responses:
+        '200':
+          description: Текущее состояние задания.
+          headers:
+            X-Request-Id: {$ref: '#/components/headers/XRequestId'}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/DeletionStatus'}
+              examples:
+                done: {$ref: '#/components/examples/DeletionStatusDone'}
+        '401': {$ref: '#/components/responses/UnauthorizedGuest'}
+        '404':
+          description: Задание не найдено для этого устройства.
+          x-error-codes: [deletion_not_found]
+          headers:
+            X-Request-Id: {$ref: '#/components/headers/XRequestId'}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ErrorEnvelope'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/ServiceUnavailable'}
+
+  /v1/sync/push:
+    post:
+      operationId: syncPush
+      tags: [sync]
+      summary: Отправить пачку мутаций outbox.
+      description: |
+        Протокол — `docs/architecture-local-first.md` §8.2 (вариант B, утверждён). Пачка
+        обрабатывается одной serializable-транзакцией; результаты — в порядке мутаций.
+
+        **Граница валидации.**
+        - Весь запрос отклоняется (`422 validation_failed`), если не разобрана структура:
+          `deviceId`, массив `mutations`, поля конверта мутации (`mutationId`, `entityType`,
+          `entityId`, `op`, `baseVersion`, `createdAt`, `updatedAt`, `schemaVersion`).
+          Неизвестный `entityType` — `422` с `details[].code = unknown_entity_type`.
+        - Неизвестная `schemaVersion` — `426 upgrade_required` для всего запроса.
+        - Больше 500 мутаций или тело больше 1 МБ — `413 payload_too_large`.
+        - Нарушение правил payload и сущности (§3.2–§4 плана, согласованность `op` /
+          `deletedAt` / `payload`) — `rejected` с `reason = invalid` только для этой
+          мутации; остальные обрабатываются, outbox не блокируется.
+
+        **Идемпотентность** — по `mutationId`: повтор возвращает сохранённый результат с
+        `replayed = true` (журнал 30 дней); тот же `mutationId` с другим телом —
+        `rejected / mutation_id_reused`. `503` + `Retry-After` — повторить ту же пачку.
+      x-subject: account
+      x-stage: E6
+      security:
+        - accountBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/PushRequest'}
+            examples:
+              mixed: {$ref: '#/components/examples/PushRequest'}
+      responses:
+        '200':
+          description: Результат по каждой мутации.
+          headers:
+            X-Request-Id: {$ref: '#/components/headers/XRequestId'}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/PushResponse'}
+              examples:
+                mixed: {$ref: '#/components/examples/PushResponse'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/UnauthorizedAccount'}
+        '403': {$ref: '#/components/responses/AccountRequired'}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
+        '422':
+          description: Структура запроса или конверт мутации не прошли валидацию; неизвестный entityType.
+          x-error-codes: [validation_failed]
+          headers:
+            X-Request-Id: {$ref: '#/components/headers/XRequestId'}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ErrorEnvelope'}
+              examples:
+                unknownEntityType: {$ref: '#/components/examples/ErrorValidationFailed'}
+        '426':
+          description: Неизвестная schemaVersion в одной из мутаций.
+          x-error-codes: [upgrade_required]
+          headers:
+            X-Request-Id: {$ref: '#/components/headers/XRequestId'}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ErrorEnvelope'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/ServiceUnavailable'}
+
+  /v1/sync/pull:
+    get:
+      operationId: syncPull
+      tags: [sync]
+      summary: Получить изменения после курсора (постранично).
+      description: |
+        Возвращает записи с `version > cursor` по возрастанию версии, не больше `limit`.
+        Клиент сохраняет страницу, `nextCursor` и `horizon` одной локальной транзакцией и
+        присылает `horizon` в следующем запросе. Пока `hasMore = true`, запрашивает следующую
+        страницу с `cursor = nextCursor`. Pull идемпотентен.
+
+        `410 resync_required` — только если `cursor > 0`, `cursor < tombstone_horizon` и
+        присланный `horizon < tombstone_horizon`. Клиент выполняет resync с `cursor = 0`, не
+        удаляя outbox (§8.4).
+      x-subject: account
+      x-stage: E6
+      security:
+        - accountBearer: []
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Horizon'
+      responses:
+        '200':
+          description: Страница изменений.
+          headers:
+            X-Request-Id: {$ref: '#/components/headers/XRequestId'}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/PullResponse'}
+              examples:
+                page: {$ref: '#/components/examples/PullResponse'}
+        '401': {$ref: '#/components/responses/UnauthorizedAccount'}
+        '403': {$ref: '#/components/responses/AccountRequired'}
+        '410':
+          description: Нужен resync с cursor 0.
+          x-error-codes: [resync_required]
+          headers:
+            X-Request-Id: {$ref: '#/components/headers/XRequestId'}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ErrorEnvelope'}
+              examples:
+                resync: {$ref: '#/components/examples/ErrorResyncRequired'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/ServiceUnavailable'}
+
+  /v1/imports/parse:
+    post:
+      operationId: parseStatement
+      tags: [imports]
+      summary: Разобрать выписку (гость и аккаунт). Файл не сохраняется.
+      description: |
+        Файл читается только в памяти. Категоризация: правила сервера → `categoryHints` →
+        LLM для оставшихся (≤ `AI_MAX_DESCRIPTIONS_PER_IMPORT`) → иначе без категории
+        (`categoryStatus = unassigned`). Результат на сервере не хранится; сохраняются только
+        метаданные доставки (`import_deliveries`, TTL 7 дней).
+
+        **Идемпотентность (§6.2 плана).** `Idempotency-Key` — UUID попытки импорта (один на
+        выбор файла, общий для всех сетевых повторов):
+        - новый ключ, разбор успешен → новый `importId`, `confirmed = false`;
+        - новый ключ, ошибка разбора → доставка не создаётся; повтор разбирает заново;
+        - тот же ключ и тот же файл → разбор заново, **тот же** `importId`, `confirmed` —
+          текущее состояние; счётчик не меняется. Операции совпадают при том же
+          `parserVersion`, **предложенные категории могут отличаться**;
+        - тот же ключ, другие `categories` / `categoryHints` → допустимо, тот же `importId`;
+        - тот же ключ, другой файл → `409 idempotency_key_reused`, разбор не выполняется;
+        - параллельный запрос с тем же ключом → `409 idempotency_in_progress` + `Retry-After`;
+        - ключ старше 7 дней → как новый ключ.
+
+        Импорт засчитывается только после `POST /v1/imports/{importId}/displayed`.
+      x-subject: any
+      x-stage: E3
+      security:
+        - guestBearer: []
+        - accountBearer: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema: {$ref: '#/components/schemas/ParseStatementForm'}
+            encoding:
+              file:
+                contentType: application/octet-stream
+              categories:
+                contentType: application/json
+              categoryHints:
+                contentType: application/json
+      responses:
+        '200':
+          description: Результат разбора (новый или повторный).
+          headers:
+            X-Request-Id: {$ref: '#/components/headers/XRequestId'}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ParseResult'}
+              examples:
+                parsed: {$ref: '#/components/examples/ParseResult'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/UnauthorizedAny'}
+        '409':
+          description: Конфликт Idempotency-Key.
+          x-error-codes: [idempotency_key_reused, idempotency_in_progress]
+          headers:
+            X-Request-Id: {$ref: '#/components/headers/XRequestId'}
+            Retry-After: {$ref: '#/components/headers/RetryAfterOptional'}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ErrorEnvelope'}
+        '413':
+          description: Файл или запрос больше лимита.
+          x-error-codes: [file_too_large, payload_too_large]
+          headers:
+            X-Request-Id: {$ref: '#/components/headers/XRequestId'}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ErrorEnvelope'}
+              examples:
+                fileTooLarge: {$ref: '#/components/examples/ErrorFileTooLarge'}
+        '415':
+          description: Формат файла не поддерживается.
+          x-error-codes: [unsupported_format]
+          headers:
+            X-Request-Id: {$ref: '#/components/headers/XRequestId'}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ErrorEnvelope'}
+        '422':
+          description: Ошибка разбора или валидации. Попытка не расходуется.
+          x-error-codes:
+            [validation_failed, corrupted_file, unknown_bank, empty_statement, income_only, statement_too_large]
+          headers:
+            X-Request-Id: {$ref: '#/components/headers/XRequestId'}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ErrorEnvelope'}
+        '429':
+          description: Лимит частоты, параллельности или неподтверждённых результатов.
+          x-error-codes: [rate_limited, unconfirmed_imports_limit]
+          headers:
+            X-Request-Id: {$ref: '#/components/headers/XRequestId'}
+            Retry-After: {$ref: '#/components/headers/RetryAfter'}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ErrorEnvelope'}
+        '500':
+          description: Внутренняя ошибка или сбой обработки.
+          x-error-codes: [internal_error, processing_failed]
+          headers:
+            X-Request-Id: {$ref: '#/components/headers/XRequestId'}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ErrorEnvelope'}
+        '503':
+          description: Таймаут разбора или перегрузка экземпляра.
+          x-error-codes: [service_unavailable, processing_timeout]
+          headers:
+            X-Request-Id: {$ref: '#/components/headers/XRequestId'}
+            Retry-After: {$ref: '#/components/headers/RetryAfter'}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ErrorEnvelope'}
+
+  /v1/imports/{importId}/displayed:
+    post:
+      operationId: confirmImportDisplayed
+      tags: [imports]
+      summary: Подтвердить показ результата разбора (засчитать импорт).
+      description: |
+        Вызывается после показа экрана проверки результата. Подтверждает устройство, которое
+        выполнило разбор (`did` токена совпадает с устройством доставки; гостевой токен или
+        токен аккаунта этого устройства). Первое подтверждение вставляет запись в
+        `import_ledger` и обновляет счётчики; повтор — no-op с тем же ответом.
+
+        Клиентская очередь подтверждений хранит `importId` до `200`, `404` или `410` и
+        повторяет запрос с backoff независимо от экрана (§8.1).
+      x-subject: any
+      x-stage: E4
+      security:
+        - guestBearer: []
+        - accountBearer: []
+      parameters:
+        - $ref: '#/components/parameters/ImportId'
+      responses:
+        '200':
+          description: Импорт учтён (или уже был учтён).
+          headers:
+            X-Request-Id: {$ref: '#/components/headers/XRequestId'}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ImportDisplayedResponse'}
+              example:
+                imports: {used: 1, limit: 3, state: free, enforced: false}
+        '401': {$ref: '#/components/responses/UnauthorizedAny'}
+        '404':
+          description: Нет доставки с таким importId для этого устройства. Убрать из очереди.
+          x-error-codes: [import_not_found]
+          headers:
+            X-Request-Id: {$ref: '#/components/headers/XRequestId'}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ErrorEnvelope'}
+        '410':
+          description: Доставка истекла (7 дней). Попытка не расходуется. Убрать из очереди.
+          x-error-codes: [delivery_expired]
+          headers:
+            X-Request-Id: {$ref: '#/components/headers/XRequestId'}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ErrorEnvelope'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/ServiceUnavailable'}
+
+  /v1/apple/notifications:
+    post:
+      operationId: receiveAppleNotification
+      tags: [apple]
+      summary: Server-to-server уведомление Sign in with Apple.
+      description: |
+        Тело — `{"payload": "<JWS>"}`. Подпись проверяется по JWKS Apple, `iss` =
+        `https://appleid.apple.com`, `aud` = bundle id. Тип — `events.type` (claim `events`
+        разбирается и как объект, и как JSON-строка). `200` — после надёжной записи события.
+
+        Реакции: `consent-revoked` → все сессии аккаунта отзываются (`session_revoked`), данные
+        не удаляются; `account-deleted` (синоним `account-delete`) → удаление аккаунта без
+        шага отзыва; `email-enabled` / `email-disabled` и неизвестные типы → `200` без действий.
+        Идемпотентность — по `jti` (иначе `(sub, type, event_time)`); дубль — `200`.
+      x-subject: none
+      x-stage: E7
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/AppleNotificationRequest'}
+      responses:
+        '200':
+          description: Событие записано (или дубль).
+          headers:
+            X-Request-Id: {$ref: '#/components/headers/XRequestId'}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Ack'}
+        '400':
+          description: Тело не разобрано или подпись / claims JWS не прошли проверку.
+          x-error-codes: [invalid_request]
+          headers:
+            X-Request-Id: {$ref: '#/components/headers/XRequestId'}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ErrorEnvelope'}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/ServiceUnavailable'}
+
+components:
+  securitySchemes:
+    guestBearer:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        Access JWT гостевой записи устройства (15 мин). Claims: `kind = guest`, `did`.
+        Клиент не разбирает токен.
+    accountBearer:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        Access JWT аккаунта (15 мин). Claims: `kind = account`, `did`, `sub` = accountId.
+        Клиент не разбирает токен.
+
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: UUID, сгенерированный клиентом. Нет или не UUID — `400 invalid_request`.
+      schema: {type: string, format: uuid}
+    DeletionId:
+      name: deletionId
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+    ImportId:
+      name: importId
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      description: Последняя полученная версия (`nextCursor` прошлой страницы). 0 — с начала.
+      schema: {type: integer, format: int64, minimum: 0, default: 0}
+    Limit:
+      name: limit
+      in: query
+      required: false
+      description: Размер страницы.
+      schema: {type: integer, minimum: 1, maximum: 500, default: 500}
+    Horizon:
+      name: horizon
+      in: query
+      required: false
+      description: '`horizon` из прошлого ответа pull. 0 — первый запрос / resync.'
+      schema: {type: integer, format: int64, minimum: 0, default: 0}
+
+  headers:
+    XRequestId:
+      description: Идентификатор запроса для поддержки и логов.
+      required: true
+      schema: {type: string, pattern: '^req_[0-9a-f]{32}$'}
+    RetryAfter:
+      description: Через сколько секунд повторять (delta-seconds).
+      required: true
+      schema: {type: integer, minimum: 0}
+    RetryAfterOptional:
+      description: Присутствует для `idempotency_in_progress`.
+      required: false
+      schema: {type: integer, minimum: 0}
+    IdempotentReplayed:
+      description: '`true` — ответ является повтором по тому же Idempotency-Key.'
+      required: false
+      schema: {type: string, enum: ['true']}
+
+  responses:
+    BadRequest:
+      description: Запрос не разобран.
+      x-error-codes: [invalid_request]
+      headers:
+        X-Request-Id: {$ref: '#/components/headers/XRequestId'}
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/ErrorEnvelope'}
+    ValidationFailed:
+      description: Валидация не пройдена; подробности в details[].
+      x-error-codes: [validation_failed]
+      headers:
+        X-Request-Id: {$ref: '#/components/headers/XRequestId'}
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/ErrorEnvelope'}
+    UnauthorizedGuest:
+      description: Гостевой access JWT отсутствует, недействителен или истёк.
+      x-error-codes: [token_expired, access_token_invalid]
+      headers:
+        X-Request-Id: {$ref: '#/components/headers/XRequestId'}
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/ErrorEnvelope'}
+    UnauthorizedAccount:
+      description: Access JWT аккаунта недействителен, сессия отозвана или аккаунт удалён.
+      x-error-codes: [token_expired, access_token_invalid, session_revoked, account_deleted]
+      headers:
+        X-Request-Id: {$ref: '#/components/headers/XRequestId'}
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/ErrorEnvelope'}
+          examples:
+            sessionRevoked: {$ref: '#/components/examples/ErrorSessionRevoked'}
+    UnauthorizedAny:
+      description: Access JWT (гостя или аккаунта) недействителен; для аккаунта — также отзыв и удаление.
+      x-error-codes: [token_expired, access_token_invalid, session_revoked, account_deleted]
+      headers:
+        X-Request-Id: {$ref: '#/components/headers/XRequestId'}
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/ErrorEnvelope'}
+    AccountRequired:
+      description: Доступно только аккаунту.
+      x-error-codes: [account_required]
+      headers:
+        X-Request-Id: {$ref: '#/components/headers/XRequestId'}
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/ErrorEnvelope'}
+    PayloadTooLarge:
+      description: Тело запроса больше лимита.
+      x-error-codes: [payload_too_large]
+      headers:
+        X-Request-Id: {$ref: '#/components/headers/XRequestId'}
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/ErrorEnvelope'}
+    TooManyRequests:
+      description: Превышен лимит частоты.
+      x-error-codes: [rate_limited]
+      headers:
+        X-Request-Id: {$ref: '#/components/headers/XRequestId'}
+        Retry-After: {$ref: '#/components/headers/RetryAfter'}
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/ErrorEnvelope'}
+          examples:
+            rateLimited: {$ref: '#/components/examples/ErrorRateLimited'}
+    InternalError:
+      description: Внутренняя ошибка.
+      x-error-codes: [internal_error]
+      headers:
+        X-Request-Id: {$ref: '#/components/headers/XRequestId'}
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/ErrorEnvelope'}
+    ServiceUnavailable:
+      description: Временно недоступно (YDB, внешние сервисы, троттлинг RU).
+      x-error-codes: [service_unavailable]
+      headers:
+        X-Request-Id: {$ref: '#/components/headers/XRequestId'}
+        Retry-After: {$ref: '#/components/headers/RetryAfter'}
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/ErrorEnvelope'}
+
+  schemas:
+    # --- Ошибки (09 — Error Model) ---------------------------------------------------------
+    ErrorCode:
+      type: string
+      description: Код ошибки. Каталог — `x-error-catalog`. Расширяемый набор.
+      x-extensible-enum: true
+      enum:
+        - invalid_request
+        - apple_token_invalid
+        - token_expired
+        - access_token_invalid
+        - refresh_token_invalid
+        - session_revoked
+        - account_deleted
+        - account_required
+        - not_found
+        - import_not_found
+        - deletion_not_found
+        - method_not_allowed
+        - idempotency_key_reused
+        - idempotency_in_progress
+        - resync_required
+        - delivery_expired
+        - payload_too_large
+        - file_too_large
+        - unsupported_format
+        - validation_failed
+        - corrupted_file
+        - unknown_bank
+        - empty_statement
+        - income_only
+        - statement_too_large
+        - upgrade_required
+        - rate_limited
+        - unconfirmed_imports_limit
+        - internal_error
+        - processing_failed
+        - service_unavailable
+        - processing_timeout
+    ErrorDetail:
+      type: object
+      required: [code]
+      properties:
+        code:
+          type: string
+          description: Машинный код подробности (расширяемый набор), например `unknown_entity_type`.
+        field:
+          type: string
+          description: Имя поля (camelCase) или заголовка.
+        index:
+          type: integer
+          minimum: 0
+          description: Индекс элемента массива (например, мутации).
+    ErrorEnvelope:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message, status, retryable, requestId, details]
+          properties:
+            code: {$ref: '#/components/schemas/ErrorCode'}
+            message:
+              type: string
+              description: Только для логов клиента. Не показывать пользователю, без ПДн.
+            status:
+              type: integer
+              description: Совпадает с HTTP-статусом.
+            retryable:
+              type: boolean
+              description: Можно ли автоматически повторить тот же запрос (§8.1 плана).
+            requestId:
+              type: string
+              pattern: '^req_[0-9a-f]{32}$'
+            details:
+              type: array
+              items: {$ref: '#/components/schemas/ErrorDetail'}
+
+    # --- Общие типы ------------------------------------------------------------------------
+    Uuid:
+      type: string
+      format: uuid
+      pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+      description: UUID в каноническом виде, нижний регистр.
+    CalendarDate:
+      type: string
+      format: date
+      pattern: '^\d{4}-\d{2}-\d{2}$'
+      description: Календарная дата YYYY-MM-DD без часового пояса.
+    Timestamp:
+      type: string
+      format: date-time
+      description: RFC 3339 с часовым поясом.
+    Money:
+      type: string
+      pattern: '^(0|[1-9]\d{0,8})\.\d{2}$'
+      not: {const: '0.00'}
+      description: |
+        Сумма в рублях: decimal-строка ровно с 2 знаками после точки, > 0 и
+        ≤ 999 999 999.99 (99 999 999 999 коп.).
+      examples: ['250.50']
+    SubjectKind:
+      type: string
+      enum: [guest, account]
+    ImportUsage:
+      type: object
+      description: Учёт бесплатных подтверждённых импортов (§5, §6.1 плана).
+      required: [used, limit, state, enforced]
+      properties:
+        used: {type: integer, minimum: 0}
+        limit: {type: integer, minimum: 0, description: 'IMPORT_FREE_LIMIT (3).'}
+        state:
+          type: string
+          enum: [free, quota_exhausted, premium]
+          x-extensible-enum: true
+        enforced:
+          type: boolean
+          description: '`false`, пока ENFORCE_QUOTAS=false: исчерпание импорт не блокирует.'
+    Health:
+      type: object
+      required: [status]
+      properties:
+        status: {type: string, const: ok}
+    Ack:
+      type: object
+      required: [status]
+      properties:
+        status: {type: string, const: ok}
+
+    # --- Auth ------------------------------------------------------------------------------
+    GuestSessionRequest:
+      type: object
+      required: [platform, appVersion]
+      properties:
+        platform:
+          type: string
+          enum: [ios, android]
+        appVersion: {type: string, minLength: 1, maxLength: 32}
+    RefreshRequest:
+      type: object
+      required: [refreshToken]
+      properties:
+        refreshToken: {type: string, minLength: 16, maxLength: 256}
+    LogoutRequest:
+      type: object
+      required: [refreshToken]
+      properties:
+        refreshToken: {type: string, minLength: 16, maxLength: 256}
+    AppleSignInRequest:
+      type: object
+      required: [identityToken, authorizationCode, nonce]
+      properties:
+        identityToken:
+          type: string
+          minLength: 1
+          maxLength: 8192
+          description: JWT от ASAuthorizationAppleIDCredential.
+        authorizationCode:
+          type: string
+          minLength: 1
+          maxLength: 1024
+          description: Одноразовый код Apple (действует ~5 мин).
+        nonce:
+          type: string
+          minLength: 16
+          maxLength: 256
+          description: Исходный nonce; в запросе к Apple передан его SHA-256.
+    SessionTokens:
+      type: object
+      required: [accessToken, accessTokenExpiresAt, refreshToken, refreshTokenExpiresAt]
+      properties:
+        accessToken: {type: string}
+        accessTokenExpiresAt: {$ref: '#/components/schemas/Timestamp'}
+        refreshToken:
+          type: string
+          description: Хранить в Keychain (AfterFirstUnlockThisDeviceOnly). 365 дней, ротация.
+        refreshTokenExpiresAt: {$ref: '#/components/schemas/Timestamp'}
+    GuestSession:
+      allOf:
+        - $ref: '#/components/schemas/SessionTokens'
+        - type: object
+          required: [subjectKind, deviceId]
+          properties:
+            subjectKind: {type: string, const: guest}
+            deviceId: {$ref: '#/components/schemas/Uuid'}
+    AccountSession:
+      allOf:
+        - $ref: '#/components/schemas/SessionTokens'
+        - type: object
+          required: [subjectKind, deviceId, accountId]
+          properties:
+            subjectKind: {type: string, const: account}
+            deviceId: {$ref: '#/components/schemas/Uuid'}
+            accountId: {$ref: '#/components/schemas/Uuid'}
+    Session:
+      oneOf:
+        - $ref: '#/components/schemas/GuestSession'
+        - $ref: '#/components/schemas/AccountSession'
+      discriminator:
+        propertyName: subjectKind
+        mapping:
+          guest: '#/components/schemas/GuestSession'
+          account: '#/components/schemas/AccountSession'
+    AppleSignInResponse:
+      allOf:
+        - $ref: '#/components/schemas/AccountSession'
+        - type: object
+          required: [sync]
+          properties:
+            sync:
+              type: object
+              required: [lastVersion, hasData]
+              description: Состояние облака для выбора сценария входа (§2.3 плана).
+              properties:
+                lastVersion: {type: integer, format: int64, minimum: 0}
+                hasData:
+                  type: boolean
+                  description: В облаке есть живые записи аккаунта.
+
+    # --- Профиль и удаление ----------------------------------------------------------------
+    GuestMe:
+      type: object
+      required: [subjectKind, deviceId, features]
+      properties:
+        subjectKind: {type: string, const: guest}
+        deviceId: {$ref: '#/components/schemas/Uuid'}
+        features: {$ref: '#/components/schemas/Features'}
+    AccountMe:
+      type: object
+      required: [subjectKind, deviceId, accountId, features, sync]
+      properties:
+        subjectKind: {type: string, const: account}
+        deviceId: {$ref: '#/components/schemas/Uuid'}
+        accountId: {$ref: '#/components/schemas/Uuid'}
+        features: {$ref: '#/components/schemas/Features'}
+        sync:
+          type: object
+          required: [lastVersion]
+          properties:
+            lastVersion: {type: integer, format: int64, minimum: 0}
+    Me:
+      oneOf:
+        - $ref: '#/components/schemas/GuestMe'
+        - $ref: '#/components/schemas/AccountMe'
+      discriminator:
+        propertyName: subjectKind
+        mapping:
+          guest: '#/components/schemas/GuestMe'
+          account: '#/components/schemas/AccountMe'
+    Features:
+      type: object
+      required: [imports]
+      properties:
+        imports: {$ref: '#/components/schemas/ImportUsage'}
+    DeleteAccountRequest:
+      type: object
+      properties:
+        authorizationCode:
+          type: string
+          minLength: 1
+          maxLength: 1024
+          description: Свежий код Apple с экрана удаления (необязательно).
+    DeletionState:
+      type: string
+      enum: [pending, revoking, deleting, done, failed_retrying]
+      x-extensible-enum: true
+    AppleTokenRevocation:
+      type: string
+      description: |
+        Состояние отзыва Apple-токена. `skipped_no_token` — клиент показывает подсказку
+        «отключите приложение в настройках Apple ID»; `not_required` — удаление по уведомлению
+        `account-deleted`.
+      enum: [pending, done, skipped_no_token, not_required]
+      x-extensible-enum: true
+    DeletionAccepted:
+      type: object
+      required: [deletionId, state]
+      properties:
+        deletionId: {$ref: '#/components/schemas/Uuid'}
+        state: {$ref: '#/components/schemas/DeletionState'}
+    DeletionStatus:
+      type: object
+      required: [deletionId, state, appleTokenRevocation, updatedAt]
+      properties:
+        deletionId: {$ref: '#/components/schemas/Uuid'}
+        state: {$ref: '#/components/schemas/DeletionState'}
+        appleTokenRevocation: {$ref: '#/components/schemas/AppleTokenRevocation'}
+        updatedAt: {$ref: '#/components/schemas/Timestamp'}
+
+    # --- Sync: payload сущностей -----------------------------------------------------------
+    EntityType:
+      type: string
+      description: Неизвестный тип в push — `422` для всего запроса.
+      enum: [expense, category, day_mark]
+    ExpensePayload:
+      type: object
+      additionalProperties: false
+      required: [amount, categoryId, date]
+      properties:
+        amount: {$ref: '#/components/schemas/Money'}
+        categoryId:
+          $ref: '#/components/schemas/Uuid'
+          description: Сервер связь не проверяет; неизвестная категория — плейсхолдер на клиенте.
+        date: {$ref: '#/components/schemas/CalendarDate'}
+        comment:
+          type: [string, 'null']
+          minLength: 1
+          maxLength: 200
+          description: |
+            Нормализован клиентом по правилу §3.3 (NFC, без Cc, без пробельных символов по
+            краям, пустая строка → null). Длина — в Unicode scalar values, ≤ 200. Sync не
+            обрезает: длиннее — `rejected/invalid`. Векторы — `contract/vectors/comment.json`.
+    UserCategoryPayload:
+      type: object
+      additionalProperties: false
+      required: [kind, name, emoji, colorIndex, isArchived]
+      properties:
+        kind: {type: string, const: user}
+        name: {type: string, minLength: 1, maxLength: 24, description: '1–24 Unicode scalar values.'}
+        emoji:
+          type: string
+          minLength: 1
+          maxLength: 16
+          description: Ровно одна графема (проверяется сервером → `rejected/invalid`).
+        colorIndex: {type: integer, minimum: 0, maximum: 11}
+        sortOrder: {type: integer, format: int32}
+        isArchived: {type: boolean}
+    SystemCategoryPayload:
+      type: object
+      additionalProperties: false
+      required: [kind, isArchived]
+      description: |
+        Состояние системной категории; определение — константа приложения. `entityId` —
+        только из реестра `contract/system-categories.json`; `isArchived = true` для «Другое»
+        (`…000099`) — `rejected/invalid`.
+      properties:
+        kind: {type: string, const: system}
+        isArchived: {type: boolean}
+    CategoryPayload:
+      oneOf:
+        - $ref: '#/components/schemas/UserCategoryPayload'
+        - $ref: '#/components/schemas/SystemCategoryPayload'
+      discriminator:
+        propertyName: kind
+        mapping:
+          user: '#/components/schemas/UserCategoryPayload'
+          system: '#/components/schemas/SystemCategoryPayload'
+    DayMarkPayload:
+      type: object
+      additionalProperties: false
+      required: [date, isMarked]
+      description: |
+        `entityId = UUIDv5(NS_DAY_MARK, date)`, `NS_DAY_MARK` — `x-contract.dayMarkNamespace`.
+        Сервер проверяет `entityId ↔ date` и `date ≤ серверное сегодня + 1`.
+      properties:
+        date: {$ref: '#/components/schemas/CalendarDate'}
+        isMarked: {type: boolean}
+
+    # --- Sync: мутации ---------------------------------------------------------------------
+    MutationBase:
+      type: object
+      required: [mutationId, entityType, entityId, op, baseVersion, createdAt, updatedAt, schemaVersion]
+      properties:
+        mutationId:
+          $ref: '#/components/schemas/Uuid'
+          description: Ключ идемпотентности мутации. Сохраняется в outbox до ответа сервера.
+        entityType: {$ref: '#/components/schemas/EntityType'}
+        entityId: {$ref: '#/components/schemas/Uuid'}
+        op:
+          type: string
+          enum: [upsert, delete]
+        baseVersion:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Серверная версия, на которой основана правка; 0 — создание.
+        createdAt: {$ref: '#/components/schemas/Timestamp'}
+        updatedAt:
+          $ref: '#/components/schemas/Timestamp'
+          description: Часы устройства; только для конкурентных конфликтов. > now + 5 мин обрезается.
+        deletedAt:
+          oneOf:
+            - $ref: '#/components/schemas/Timestamp'
+            - type: 'null'
+        schemaVersion:
+          type: integer
+          minimum: 1
+          description: Версия формата payload. Известные сервером — 1; иные — `426`.
+        payload: {}
+    ExpenseUpsert:
+      type: object
+      required: [entityType, op, payload]
+      properties:
+        entityType: {const: expense}
+        op: {const: upsert}
+        deletedAt: {type: 'null'}
+        payload: {$ref: '#/components/schemas/ExpensePayload'}
+    ExpenseDelete:
+      type: object
+      required: [entityType, op, deletedAt]
+      description: Tombstone. Delete wins.
+      properties:
+        entityType: {const: expense}
+        op: {const: delete}
+        deletedAt: {$ref: '#/components/schemas/Timestamp'}
+        payload: {type: 'null'}
+    CategoryUpsert:
+      type: object
+      required: [entityType, op, payload]
+      description: Категории не удаляются (`op = delete` → `rejected/invalid`), а архивируются.
+      properties:
+        entityType: {const: category}
+        op: {const: upsert}
+        deletedAt: {type: 'null'}
+        payload: {$ref: '#/components/schemas/CategoryPayload'}
+    DayMarkUpsert:
+      type: object
+      required: [entityType, op, payload]
+      description: Отметка не удаляется; снятие — `isMarked = false`.
+      properties:
+        entityType: {const: day_mark}
+        op: {const: upsert}
+        deletedAt: {type: 'null'}
+        payload: {$ref: '#/components/schemas/DayMarkPayload'}
+    Mutation:
+      description: |
+        Корректная мутация клиента. Нарушение этой схемы в части payload и правил сущности
+        сервер не превращает в ошибку запроса, а отвечает `rejected/invalid` по мутации.
+      allOf:
+        - $ref: '#/components/schemas/MutationBase'
+        - oneOf:
+            - $ref: '#/components/schemas/ExpenseUpsert'
+            - $ref: '#/components/schemas/ExpenseDelete'
+            - $ref: '#/components/schemas/CategoryUpsert'
+            - $ref: '#/components/schemas/DayMarkUpsert'
+    PushRequest:
+      type: object
+      additionalProperties: false
+      required: [deviceId, mutations]
+      properties:
+        deviceId:
+          type: string
+          minLength: 1
+          maxLength: 64
+          pattern: '^[A-Za-z0-9._-]+$'
+          description: |
+            Устройство-автор (рекомендуется `deviceId` сессии). Диагностика и детерминированный
+            разрыв ничьей; приоритета не даёт.
+        mutations:
+          type: array
+          minItems: 1
+          maxItems: 500
+          description: |
+            Порядок outbox (категории раньше расходов). Клиент шлёт пачки по 100; > 500 или
+            тело > 1 МБ — `413 payload_too_large`.
+          items: {$ref: '#/components/schemas/Mutation'}
+
+    # --- Sync: записи и результаты ---------------------------------------------------------
+    RecordBase:
+      type: object
+      required: [entityType, entityId, version, createdAt, updatedAt, deletedAt, deviceId, schemaVersion, payload]
+      properties:
+        entityType: {$ref: '#/components/schemas/EntityType'}
+        entityId: {$ref: '#/components/schemas/Uuid'}
+        version:
+          type: integer
+          format: int64
+          minimum: 1
+          description: Монотонная версия внутри аккаунта; курсор pull и основа baseVersion.
+        createdAt: {$ref: '#/components/schemas/Timestamp'}
+        updatedAt: {$ref: '#/components/schemas/Timestamp'}
+        deletedAt:
+          oneOf:
+            - $ref: '#/components/schemas/Timestamp'
+            - type: 'null'
+        deviceId: {type: string}
+        schemaVersion: {type: integer, minimum: 1}
+        payload: {}
+    ExpenseRecord:
+      allOf:
+        - $ref: '#/components/schemas/RecordBase'
+        - type: object
+          properties:
+            entityType: {const: expense}
+            payload:
+              description: '`null` — tombstone (`deletedAt` задан).'
+              oneOf:
+                - $ref: '#/components/schemas/ExpensePayload'
+                - type: 'null'
+    CategoryRecord:
+      allOf:
+        - $ref: '#/components/schemas/RecordBase'
+        - type: object
+          properties:
+            entityType: {const: category}
+            deletedAt: {type: 'null'}
+            payload: {$ref: '#/components/schemas/CategoryPayload'}
+    DayMarkRecord:
+      allOf:
+        - $ref: '#/components/schemas/RecordBase'
+        - type: object
+          properties:
+            entityType: {const: day_mark}
+            deletedAt: {type: 'null'}
+            payload: {$ref: '#/components/schemas/DayMarkPayload'}
+    SyncRecord:
+      oneOf:
+        - $ref: '#/components/schemas/ExpenseRecord'
+        - $ref: '#/components/schemas/CategoryRecord'
+        - $ref: '#/components/schemas/DayMarkRecord'
+      discriminator:
+        propertyName: entityType
+        mapping:
+          expense: '#/components/schemas/ExpenseRecord'
+          category: '#/components/schemas/CategoryRecord'
+          day_mark: '#/components/schemas/DayMarkRecord'
+    MutationStatus:
+      type: string
+      enum: [applied, rejected, noop]
+    RejectReason:
+      type: string
+      description: |
+        `conflict` — проиграла конкурентной правке (LWW / archive wins); `deleted` — запись
+        удалена (delete wins); `invalid` — нарушены правила payload или сущности;
+        `mutation_id_reused` — тот же mutationId с другим телом.
+      enum: [conflict, deleted, invalid, mutation_id_reused]
+      x-extensible-enum: true
+    InvalidMutationDetailCode:
+      type: string
+      description: Известные коды details[] для `rejected/invalid` (набор расширяемый).
+      x-extensible-enum: true
+      enum:
+        - payload_invalid
+        - op_not_allowed
+        - comment_too_long
+        - category_kind_mismatch
+        - category_kind_change
+        - system_category_unknown
+        - fallback_category_not_archivable
+        - day_mark_id_mismatch
+        - date_in_future
+    MutationResult:
+      type: object
+      required: [mutationId, status, conflict, replayed]
+      properties:
+        mutationId: {$ref: '#/components/schemas/Uuid'}
+        status: {$ref: '#/components/schemas/MutationStatus'}
+        reason:
+          oneOf:
+            - $ref: '#/components/schemas/RejectReason'
+            - type: 'null'
+          description: Только при `status = rejected`.
+        conflict:
+          type: boolean
+          description: Обнаружена конкурентная правка (даже если мутация применена).
+        version:
+          type: [integer, 'null']
+          format: int64
+          description: Версия записи после `applied`.
+        replayed:
+          type: boolean
+          description: Повтор уже обработанной мутации; результат из журнала.
+        record:
+          description: |
+            Актуальная серверная запись, если клиенту нужно её применить. Нет `record` у
+            неприменённой мутации — записи на сервере нет, клиент удаляет её локально.
+          oneOf:
+            - $ref: '#/components/schemas/SyncRecord'
+            - type: 'null'
+        details:
+          type: array
+          description: Только при `reason = invalid`.
+          items: {$ref: '#/components/schemas/ErrorDetail'}
+    PushResponse:
+      type: object
+      required: [results]
+      properties:
+        results:
+          type: array
+          description: В том же порядке, что мутации запроса.
+          items: {$ref: '#/components/schemas/MutationResult'}
+    PullResponse:
+      type: object
+      required: [records, nextCursor, hasMore, horizon]
+      properties:
+        records:
+          type: array
+          maxItems: 500
+          items: {$ref: '#/components/schemas/SyncRecord'}
+        nextCursor:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Курсор следующей страницы (версия последней записи страницы).
+        hasMore: {type: boolean}
+        horizon:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Текущий горизонт очистки tombstones; прислать в следующем pull.
+
+    # --- Импорт ----------------------------------------------------------------------------
+    CategoryRef:
+      type: object
+      required: [id, name]
+      properties:
+        id: {$ref: '#/components/schemas/Uuid'}
+        name: {type: string, minLength: 1, maxLength: 24}
+    CategoryHint:
+      type: object
+      required: [merchantKey, categoryId]
+      properties:
+        merchantKey:
+          type: string
+          minLength: 1
+          maxLength: 40
+          description: '`merchantKey(comment)` по §7.4 п. 7 плана.'
+        categoryId: {$ref: '#/components/schemas/Uuid'}
+    ParseStatementForm:
+      type: object
+      required: [file, categories]
+      properties:
+        file:
+          type: string
+          contentMediaType: application/octet-stream
+          description: Файл выписки, ≤ IMPORT_MAX_FILE_BYTES (2 МБ). Больше — `413 file_too_large`.
+          x-max-bytes-default: 2097152
+        categories:
+          type: array
+          description: Активные (неархивные) категории устройства — системные и пользовательские.
+          items: {$ref: '#/components/schemas/CategoryRef'}
+        categoryHints:
+          type: array
+          maxItems: 500
+          description: Подсказки из истории устройства; на сервере не хранятся.
+          items: {$ref: '#/components/schemas/CategoryHint'}
+    ParsedOperation:
+      type: object
+      required: [date, amount, comment, categoryId, categoryStatus]
+      properties:
+        date: {$ref: '#/components/schemas/CalendarDate'}
+        amount: {$ref: '#/components/schemas/Money'}
+        comment:
+          type: [string, 'null']
+          minLength: 1
+          maxLength: 200
+          description: Название операции по правилу §3.3, обрезанное по границе графем до 200.
+        categoryId:
+          oneOf:
+            - $ref: '#/components/schemas/Uuid'
+            - type: 'null'
+        categoryStatus:
+          type: string
+          description: '`unassigned` — категория не определена, нужна проверка пользователем.'
+          enum: [assigned, suggested, unassigned]
+          x-extensible-enum: true
+    ParseWarning:
+      type: object
+      required: [code]
+      description: Предупреждение разбора. Неизвестные `code` клиент игнорирует.
+      properties:
+        code:
+          type: string
+          enum: [partially_read]
+          x-extensible-enum: true
+        unreadDates:
+          type: array
+          items: {$ref: '#/components/schemas/CalendarDate'}
+        unreadRowCount: {type: integer, minimum: 0}
+    ParseResult:
+      type: object
+      required:
+        [importId, confirmed, parserVersion, bank, period, operations, skippedIncomeCount, warnings, imports]
+      properties:
+        importId:
+          $ref: '#/components/schemas/Uuid'
+          description: Ключ локального черновика. Повтор с тем же ключом и файлом — тот же importId.
+        confirmed:
+          type: boolean
+          description: Показ уже подтверждён. Повтор не перезаписывает существующий черновик (§6.5).
+        parserVersion: {type: string, minLength: 1}
+        bank:
+          oneOf:
+            - type: object
+              required: [code, name]
+              properties:
+                code: {type: string}
+                name: {type: string}
+            - type: 'null'
+        period:
+          type: object
+          required: [from, to]
+          properties:
+            from: {$ref: '#/components/schemas/CalendarDate'}
+            to: {$ref: '#/components/schemas/CalendarDate'}
+        operations:
+          type: array
+          description: Не больше IMPORT_MAX_OPERATIONS (5 000 по умолчанию).
+          items: {$ref: '#/components/schemas/ParsedOperation'}
+        skippedIncomeCount: {type: integer, minimum: 0}
+        warnings:
+          type: array
+          items: {$ref: '#/components/schemas/ParseWarning'}
+        imports: {$ref: '#/components/schemas/ImportUsage'}
+    ImportDisplayedResponse:
+      type: object
+      required: [imports]
+      properties:
+        imports: {$ref: '#/components/schemas/ImportUsage'}
+
+    # --- Apple -----------------------------------------------------------------------------
+    AppleNotificationRequest:
+      type: object
+      required: [payload]
+      properties:
+        payload:
+          type: string
+          minLength: 1
+          maxLength: 16384
+          description: JWS от Apple.
+
+  examples:
+    GuestSession:
+      value:
+        subjectKind: guest
+        deviceId: 3f1c8a52-6d0e-4f7a-9b21-0c5d8e7f6a10
+        accessToken: eyJhbGciOiJIUzI1NiJ9.guest.signature
+        accessTokenExpiresAt: '2026-10-11T12:15:00Z'
+        refreshToken: rt_9f2c7b1e4d8a6c3f5e0b2a7d9c1e4f6a
+        refreshTokenExpiresAt: '2027-10-11T12:00:00Z'
+    AccountSession:
+      value:
+        subjectKind: account
+        deviceId: 3f1c8a52-6d0e-4f7a-9b21-0c5d8e7f6a10
+        accountId: 8d2e4b6a-1c3f-4e5d-8a7b-9c0d1e2f3a4b
+        accessToken: eyJhbGciOiJIUzI1NiJ9.account.signature
+        accessTokenExpiresAt: '2026-10-11T12:15:00Z'
+        refreshToken: rt_1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d
+        refreshTokenExpiresAt: '2027-10-11T12:00:00Z'
+    AppleSignInResponse:
+      value:
+        subjectKind: account
+        deviceId: 3f1c8a52-6d0e-4f7a-9b21-0c5d8e7f6a10
+        accountId: 8d2e4b6a-1c3f-4e5d-8a7b-9c0d1e2f3a4b
+        accessToken: eyJhbGciOiJIUzI1NiJ9.account.signature
+        accessTokenExpiresAt: '2026-10-11T12:15:00Z'
+        refreshToken: rt_1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d
+        refreshTokenExpiresAt: '2027-10-11T12:00:00Z'
+        sync: {lastVersion: 42, hasData: true}
+    MeGuest:
+      value:
+        subjectKind: guest
+        deviceId: 3f1c8a52-6d0e-4f7a-9b21-0c5d8e7f6a10
+        features:
+          imports: {used: 1, limit: 3, state: free, enforced: false}
+    MeAccount:
+      value:
+        subjectKind: account
+        deviceId: 3f1c8a52-6d0e-4f7a-9b21-0c5d8e7f6a10
+        accountId: 8d2e4b6a-1c3f-4e5d-8a7b-9c0d1e2f3a4b
+        features:
+          imports: {used: 4, limit: 3, state: quota_exhausted, enforced: false}
+        sync: {lastVersion: 42}
+    DeletionAccepted:
+      value:
+        deletionId: 5b7c9d1e-2f3a-4b5c-8d6e-7f8a9b0c1d2e
+        state: revoking
+    DeletionStatusDone:
+      value:
+        deletionId: 5b7c9d1e-2f3a-4b5c-8d6e-7f8a9b0c1d2e
+        state: done
+        appleTokenRevocation: skipped_no_token
+        updatedAt: '2026-10-11T12:00:04Z'
+    PushRequest:
+      value:
+        deviceId: 3f1c8a52-6d0e-4f7a-9b21-0c5d8e7f6a10
+        mutations:
+          - mutationId: 0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d
+            entityType: category
+            entityId: 00000000-0000-4000-8000-000000000003
+            op: upsert
+            baseVersion: 0
+            createdAt: '2026-10-11T09:00:00+03:00'
+            updatedAt: '2026-10-11T09:00:00+03:00'
+            deletedAt: null
+            schemaVersion: 1
+            payload: {kind: system, isArchived: true}
+          - mutationId: 1b2c3d4e-5f6a-4b7c-8d9e-0f1a2b3c4d5e
+            entityType: category
+            entityId: 6e7f8a9b-0c1d-4e2f-8a3b-4c5d6e7f8a9b
+            op: upsert
+            baseVersion: 0
+            createdAt: '2026-10-11T09:01:00+03:00'
+            updatedAt: '2026-10-11T09:01:00+03:00'
+            deletedAt: null
+            schemaVersion: 1
+            payload: {kind: user, name: Кофе, emoji: ☕, colorIndex: 4, isArchived: false}
+          - mutationId: 2c3d4e5f-6a7b-4c8d-9e0f-1a2b3c4d5e6f
+            entityType: expense
+            entityId: 7f8a9b0c-1d2e-4f3a-8b4c-5d6e7f8a9b0c
+            op: upsert
+            baseVersion: 0
+            createdAt: '2026-10-11T09:02:00+03:00'
+            updatedAt: '2026-10-11T09:02:00+03:00'
+            deletedAt: null
+            schemaVersion: 1
+            payload:
+              amount: '250.50'
+              categoryId: 6e7f8a9b-0c1d-4e2f-8a3b-4c5d6e7f8a9b
+              date: '2026-10-11'
+              comment: Капучино 👍🏽
+          - mutationId: 3d4e5f6a-7b8c-4d9e-8f0a-1b2c3d4e5f6a
+            entityType: expense
+            entityId: 8a9b0c1d-2e3f-4a4b-8c5d-6e7f8a9b0c1d
+            op: delete
+            baseVersion: 17
+            createdAt: '2026-10-01T10:00:00+03:00'
+            updatedAt: '2026-10-11T09:03:00+03:00'
+            deletedAt: '2026-10-11T09:03:00+03:00'
+            schemaVersion: 1
+            payload: null
+          - mutationId: 4e5f6a7b-8c9d-4e0f-9a1b-2c3d4e5f6a7b
+            entityType: day_mark
+            entityId: 4b1fe6f1-5d65-5a16-9f6c-3f2d5b8d8e74
+            op: upsert
+            baseVersion: 0
+            createdAt: '2026-10-10T21:00:00+03:00'
+            updatedAt: '2026-10-10T21:00:00+03:00'
+            deletedAt: null
+            schemaVersion: 1
+            payload: {date: '2026-10-10', isMarked: true}
+    PushResponse:
+      value:
+        results:
+          - {mutationId: 0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d, status: applied, conflict: false, version: 43, replayed: false}
+          - {mutationId: 1b2c3d4e-5f6a-4b7c-8d9e-0f1a2b3c4d5e, status: applied, conflict: false, version: 44, replayed: false}
+          - {mutationId: 2c3d4e5f-6a7b-4c8d-9e0f-1a2b3c4d5e6f, status: applied, conflict: false, version: 45, replayed: true}
+          - mutationId: 3d4e5f6a-7b8c-4d9e-8f0a-1b2c3d4e5f6a
+            status: noop
+            conflict: false
+            replayed: false
+            record:
+              entityType: expense
+              entityId: 8a9b0c1d-2e3f-4a4b-8c5d-6e7f8a9b0c1d
+              version: 40
+              createdAt: '2026-10-01T07:00:00Z'
+              updatedAt: '2026-10-10T18:00:00Z'
+              deletedAt: '2026-10-10T18:00:00Z'
+              deviceId: 9c0d1e2f-3a4b-4c5d-8e6f-7a8b9c0d1e2f
+              schemaVersion: 1
+              payload: null
+          - mutationId: 4e5f6a7b-8c9d-4e0f-9a1b-2c3d4e5f6a7b
+            status: rejected
+            reason: invalid
+            conflict: false
+            replayed: false
+            details: [{code: day_mark_id_mismatch, field: entityId}]
+    PullResponse:
+      value:
+        records:
+          - entityType: category
+            entityId: 00000000-0000-4000-8000-000000000003
+            version: 43
+            createdAt: '2026-10-11T06:00:00Z'
+            updatedAt: '2026-10-11T06:00:00Z'
+            deletedAt: null
+            deviceId: 3f1c8a52-6d0e-4f7a-9b21-0c5d8e7f6a10
+            schemaVersion: 1
+            payload: {kind: system, isArchived: true}
+          - entityType: expense
+            entityId: 7f8a9b0c-1d2e-4f3a-8b4c-5d6e7f8a9b0c
+            version: 45
+            createdAt: '2026-10-11T06:02:00Z'
+            updatedAt: '2026-10-11T06:02:00Z'
+            deletedAt: null
+            deviceId: 3f1c8a52-6d0e-4f7a-9b21-0c5d8e7f6a10
+            schemaVersion: 1
+            payload:
+              amount: '250.50'
+              categoryId: 6e7f8a9b-0c1d-4e2f-8a3b-4c5d6e7f8a9b
+              date: '2026-10-11'
+              comment: Капучино 👍🏽
+          - entityType: day_mark
+            entityId: 022da4c7-f57a-5ca1-8a70-7db2901c8e15
+            version: 46
+            createdAt: '2026-10-10T18:00:00Z'
+            updatedAt: '2026-10-10T18:00:00Z'
+            deletedAt: null
+            deviceId: 9c0d1e2f-3a4b-4c5d-8e6f-7a8b9c0d1e2f
+            schemaVersion: 1
+            payload: {date: '2026-10-10', isMarked: true}
+        nextCursor: 46
+        hasMore: false
+        horizon: 12
+    ParseResult:
+      value:
+        importId: 9d0e1f2a-3b4c-4d5e-8f6a-7b8c9d0e1f2a
+        confirmed: false
+        parserVersion: alfa-xlsx/1
+        bank: {code: alfa, name: Альфа-Банк}
+        period: {from: '2026-09-01', to: '2026-09-30'}
+        operations:
+          - date: '2026-09-18'
+            amount: '1250.00'
+            comment: Пятёрочка
+            categoryId: 00000000-0000-4000-8000-000000000001
+            categoryStatus: assigned
+          - date: '2026-09-19'
+            amount: '399.00'
+            comment: Перевод по СБП
+            categoryId: null
+            categoryStatus: unassigned
+        skippedIncomeCount: 2
+        warnings: []
+        imports: {used: 0, limit: 3, state: free, enforced: false}
+    ErrorAccountDeleted:
+      value:
+        error:
+          code: account_deleted
+          message: Account deleted
+          status: 401
+          retryable: false
+          requestId: req_0123456789abcdef0123456789abcdef
+          details: []
+    ErrorSessionRevoked:
+      value:
+        error:
+          code: session_revoked
+          message: Session revoked
+          status: 401
+          retryable: false
+          requestId: req_0123456789abcdef0123456789abcdef
+          details: []
+    ErrorResyncRequired:
+      value:
+        error:
+          code: resync_required
+          message: Resync required
+          status: 410
+          retryable: false
+          requestId: req_0123456789abcdef0123456789abcdef
+          details: []
+    ErrorValidationFailed:
+      value:
+        error:
+          code: validation_failed
+          message: Validation failed
+          status: 422
+          retryable: false
+          requestId: req_0123456789abcdef0123456789abcdef
+          details: [{code: unknown_entity_type, field: entityType, index: 3}]
+    ErrorFileTooLarge:
+      value:
+        error:
+          code: file_too_large
+          message: File too large
+          status: 413
+          retryable: false
+          requestId: req_0123456789abcdef0123456789abcdef
+          details: []
+    ErrorRateLimited:
+      value:
+        error:
+          code: rate_limited
+          message: Too many requests
+          status: 429
+          retryable: true
+          requestId: req_0123456789abcdef0123456789abcdef
+          details: []

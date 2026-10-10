@@ -2,6 +2,8 @@
 
 Модульный монолит: FastAPI, Pydantic v2, async SQLAlchemy 2.0, Alembic, PostgreSQL 16. API живёт под префиксом `/v1`, контракт для клиентов лежит в [`openapi.json`](openapi.json).
 
+> **Переход на local-first (план [`docs/production-migration-plan.md`](docs/production-migration-plan.md)).** Новый контракт API v1 для iOS и Android — [`contract/openapi.yaml`](contract/openapi.yaml), правила — [`docs/api-contract.md`](docs/api-contract.md) (этап E0). Текущий код и `openapi.json` заменяются новым контрактом по этапам E1–E7.
+
 Источники истины, по порядку приоритета:
 1. Figma «Money Planner — API Architecture», страница **11 — Database Schema**.
 2. Страницы **02–10** того же файла: контракты, модель ошибок, финальные решения.
@@ -35,7 +37,8 @@ app/
     insights/    AI-выводы по готовым фактам с проверкой чисел
   jobs/        purge_inactive_users (12 мес), check_ai
 migrations/    0001 — схема, 0002 — системные категории (предварительный seed), 0003 — результат импорта
-scripts/       openapi.py — экспорт и --check контракта
+scripts/       openapi.py — экспорт и --check контракта кода; contract_spec.py — проверка contract/
+contract/      контракт API v1 (OpenAPI 3.1), реестр системных категорий, лимиты, тест-векторы, контрактные тесты
 deploy/        Yandex Cloud: COI compose, Caddy, инструкция
 ```
 
