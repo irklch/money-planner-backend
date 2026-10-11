@@ -23,6 +23,8 @@ ALLOWED_EXTRA = {
     "model",
     "reason",
     "elapsed_ms",
+    "ydb_ru",
+    "ydb_calls",
 }
 
 

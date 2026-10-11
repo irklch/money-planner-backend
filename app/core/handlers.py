@@ -9,6 +9,8 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.core.errors import ERROR_CATALOG, ApiError, error_body
+from app.db_ydb import metering
+from app.db_ydb.errors import YdbNotConfigured, YdbUnavailable
 
 log = logging.getLogger("app.http")
 
@@ -62,27 +64,30 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         request.state.request_id = f"req_{uuid.uuid4().hex}"
         started = time.perf_counter()
-        try:
-            response = await call_next(request)
-        except Exception as exc:
-            # Без traceback и текста исключения: сообщения драйверов БД могут содержать значения.
-            log.error(
-                "unhandled_error",
-                extra={"request_id": request.state.request_id, "exc_type": type(exc).__name__},
-            )
-            response = _json_error(request, "internal_error")
+        with metering.metered() as meter:
+            try:
+                response = await call_next(request)
+            except Exception as exc:
+                # Без traceback и текста исключения: сообщения драйверов БД могут содержать значения.
+                log.error(
+                    "unhandled_error",
+                    extra={"request_id": request.state.request_id, "exc_type": type(exc).__name__},
+                )
+                response = _json_error(request, "internal_error")
         response.headers["X-Request-Id"] = request.state.request_id
         route = request.scope.get("route")
-        log.info(
-            "request",
-            extra={
-                "request_id": request.state.request_id,
-                "method": request.method,
-                "route": getattr(route, "path", "unmatched"),
-                "status": response.status_code,
-                "duration_ms": round((time.perf_counter() - started) * 1000, 1),
-            },
-        )
+        extra = {
+            "request_id": request.state.request_id,
+            "method": request.method,
+            "route": getattr(route, "path", "unmatched"),
+            "status": response.status_code,
+            "duration_ms": round((time.perf_counter() - started) * 1000, 1),
+        }
+        # Учёт RU YDB на запрос (x-ydb-consumed-units): основа алертов и оценки стоимости.
+        await meter.settle()
+        if meter.ydb_calls:
+            extra.update(ydb_ru=meter.ru, ydb_calls=meter.ydb_calls)
+        log.info("request", extra=extra)
         return response
 
 
@@ -119,6 +124,15 @@ def install_handlers(app: FastAPI) -> None:
         if exc.retry_after is not None:
             headers["Retry-After"] = str(exc.retry_after)
         return _json_error(request, exc.code, [d.to_dict() for d in exc.details], headers)
+
+    @app.exception_handler(YdbUnavailable)
+    async def _ydb_unavailable(request: Request, exc: YdbUnavailable):
+        return _json_error(request, "service_unavailable", headers={"Retry-After": str(exc.retry_after)})
+
+    @app.exception_handler(YdbNotConfigured)
+    async def _ydb_not_configured(request: Request, exc: YdbNotConfigured):
+        log.error("ydb_not_configured", extra={"request_id": _request_id(request)})
+        return _json_error(request, "service_unavailable", headers={"Retry-After": "60"})
 
     @app.exception_handler(RequestValidationError)
     async def _validation(request: Request, exc: RequestValidationError):

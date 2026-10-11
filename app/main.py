@@ -1,6 +1,7 @@
 from contextlib import asynccontextmanager
 
-from fastapi import APIRouter, FastAPI
+from fastapi import APIRouter, FastAPI, Request
+from fastapi.responses import JSONResponse
 
 from app.core.config import get_settings
 from app.core.handlers import install_handlers
@@ -8,6 +9,7 @@ from app.core.logging import setup_logging
 from app.core.openapi import install_openapi
 from app.core.secrets import load_lockbox_into_env
 from app.db.session import dispose_engine, init_engine
+from app.db_ydb.client import open_client
 from app.modules.account.router import router as account_router
 from app.modules.auth.router import router as auth_router
 from app.modules.imports.router import router as imports_router
@@ -21,8 +23,14 @@ async def lifespan(app: FastAPI):
     setup_logging(settings.log_level)
     settings.check_production_ready()
     init_engine(settings)
-    yield
-    await dispose_engine()
+    # YDB (новый backend): без YDB_ENDPOINT слой не подключается; в prod обязателен (check_production_ready).
+    app.state.ydb = await open_client(settings) if settings.ydb_endpoint else None
+    try:
+        yield
+    finally:
+        if app.state.ydb is not None:
+            await app.state.ydb.close()
+        await dispose_engine()
 
 
 def create_app() -> FastAPI:
@@ -50,9 +58,15 @@ def create_app() -> FastAPI:
         v1.include_router(r)
     app.include_router(v1)
 
+    app.state.ydb = None
+
     @app.get("/healthz", include_in_schema=False)
-    async def healthz():
-        return {"status": "ok"}
+    async def healthz(request: Request):
+        """Контракт E0: 200 {status: ok}; YDB недоступна — 503 service_unavailable + Retry-After."""
+        client = request.app.state.ydb
+        if client is not None:
+            await client.ping()  # YdbUnavailable → 503 (обработчик в core/handlers.py)
+        return JSONResponse({"status": "ok"})
 
     return app
 
