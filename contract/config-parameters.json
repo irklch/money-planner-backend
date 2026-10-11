@@ -1,0 +1,47 @@
+{
+  "description": "Параметры конфигурации (план §6.3, §5, §2) и фиксированные константы протокола. 'env' — переменные окружения ревизии контейнера (не секреты), меняются без релиза; 'protocol' — часть контракта, меняются только новой версией контракта.",
+  "env": [
+    {"name": "IMPORT_MAX_FILE_BYTES", "default": 2097152, "unit": "bytes", "onExceed": {"status": 413, "code": "file_too_large"}, "note": "API Gateway: 2,5 МБ на запрос с заголовками"},
+    {"name": "IMPORT_MAX_OPERATIONS", "default": 5000, "unit": "operations", "onExceed": {"status": 422, "code": "statement_too_large"}},
+    {"name": "IMPORT_PARSE_TIMEOUT_S", "default": 30, "unit": "seconds", "onExceed": {"status": 503, "code": "processing_timeout", "retryAfter": true}, "note": "таймаут ревизии контейнера — 60 с"},
+    {"name": "IMPORT_RATE_PER_MINUTE", "default": 5, "unit": "requests/device/minute", "onExceed": {"status": 429, "code": "rate_limited", "retryAfter": true}},
+    {"name": "IMPORT_RATE_PER_DAY", "default": 10, "unit": "requests/device/day", "onExceed": {"status": 429, "code": "rate_limited", "retryAfter": true}},
+    {"name": "IMPORT_CONCURRENCY_PER_DEVICE", "default": 1, "unit": "parallel parses", "onExceed": {"status": 429, "code": "rate_limited", "retryAfter": true}},
+    {"name": "IMPORT_CONCURRENCY_PER_INSTANCE", "default": 4, "unit": "parallel parses", "onExceed": {"status": 503, "code": "service_unavailable", "retryAfter": true}},
+    {"name": "IMPORT_UNCONFIRMED_MAX", "default": 3, "unit": "unconfirmed deliveries/device/24h", "onExceed": {"status": 429, "code": "unconfirmed_imports_limit", "retryAfter": true}},
+    {"name": "IMPORT_FREE_LIMIT", "default": 3, "unit": "confirmed imports", "onExceed": null, "note": "только ImportUsage.state, пока ENFORCE_QUOTAS=false"},
+    {"name": "ENFORCE_QUOTAS", "default": false, "unit": "flag", "onExceed": null},
+    {"name": "AI_CATEGORIZATION_ENABLED", "default": true, "unit": "flag", "onExceed": null, "note": "false → categoryStatus=unassigned для нераспознанных правилами и подсказками"},
+    {"name": "AI_MAX_DESCRIPTIONS_PER_IMPORT", "default": 500, "unit": "descriptions", "onExceed": null, "note": "остальные → categoryStatus=unassigned"},
+    {"name": "GUEST_CREATE_RATE_PER_IP", "default": 10, "unit": "requests/ip/minute", "onExceed": {"status": 429, "code": "rate_limited", "retryAfter": true}}
+  ],
+  "protocol": [
+    {"name": "SYNC_PUSH_MAX_MUTATIONS", "value": 500, "onExceed": {"status": 413, "code": "payload_too_large"}},
+    {"name": "SYNC_PUSH_MAX_BODY_BYTES", "value": 1048576, "onExceed": {"status": 413, "code": "payload_too_large"}},
+    {"name": "SYNC_CLIENT_BATCH_SIZE", "value": 100, "note": "рекомендованный размер пачки клиента"},
+    {"name": "SYNC_PULL_MAX_LIMIT", "value": 500},
+    {"name": "SYNC_MUTATION_LOG_TTL_DAYS", "value": 30},
+    {"name": "SYNC_TOMBSTONE_TTL_DAYS", "value": 180},
+    {"name": "SYNC_UPDATED_AT_MAX_SKEW_S", "value": 300},
+    {"name": "SYNC_KNOWN_SCHEMA_VERSIONS", "value": [1]},
+    {"name": "EXPENSE_COMMENT_MAX_SCALARS", "value": 200},
+    {"name": "EXPENSE_AMOUNT_MAX", "value": "999999999.99"},
+    {"name": "CATEGORY_NAME_MAX_SCALARS", "value": 24},
+    {"name": "CATEGORY_COLOR_INDEX_MAX", "value": 11},
+    {"name": "IMPORT_CATEGORY_HINTS_MAX", "value": 500},
+    {"name": "IMPORT_MERCHANT_KEY_MAX_SCALARS", "value": 40},
+    {"name": "IMPORT_DELIVERY_TTL_DAYS", "value": 7},
+    {"name": "ACCESS_TOKEN_TTL_S", "value": 900},
+    {"name": "REFRESH_TOKEN_TTL_DAYS", "value": 365},
+    {"name": "REFRESH_GRACE_S", "value": 60},
+    {"name": "GUEST_IDEMPOTENCY_WINDOW_H", "value": 24},
+    {"name": "DELETED_ACCOUNTS_TTL_DAYS", "value": 400},
+    {"name": "GUEST_DEVICE_INACTIVITY_MONTHS", "value": 12}
+  ],
+  "client": [
+    {"name": "retry_max_attempts", "value": 5, "note": "§8.1: не больше 4 повторов"},
+    {"name": "retry_budget_s", "value": 45},
+    {"name": "retry_cap_s", "value": 16, "note": "задержка перед попыткой n — random[0; min(16, 2^(n-1))] с"},
+    {"name": "background_retry_cap_s", "value": 900, "note": "фоновые операции и sync: без ограничения числа попыток"}
+  ]
+}

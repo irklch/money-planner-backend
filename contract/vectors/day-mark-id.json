@@ -1,0 +1,34 @@
+{
+  "description": "entityId отметки «День без расходов» = UUIDv5(NS_DAY_MARK, \"YYYY-MM-DD\") (план §4). Имя — дата в ASCII/UTF-8 без пробелов; UUID — в нижнем регистре.",
+  "namespace": "97a5414e-31da-4b51-85c7-7ea3eab0c81d",
+  "cases": [
+    {
+      "date": "2026-10-10",
+      "entityId": "022da4c7-f57a-5ca1-8a70-7db2901c8e15"
+    },
+    {
+      "date": "2026-10-11",
+      "entityId": "29c3dde5-7c84-5c32-a851-ad693cf849b9"
+    },
+    {
+      "date": "2026-01-01",
+      "entityId": "1f91a647-2e29-53b0-988e-75c754eaa907"
+    },
+    {
+      "date": "2026-12-31",
+      "entityId": "c68224ff-357b-519c-9b21-416b02098080"
+    },
+    {
+      "date": "2024-02-29",
+      "entityId": "9eafbf24-e215-5e6b-a5ff-b9590bc49a16"
+    },
+    {
+      "date": "2000-01-01",
+      "entityId": "94a2ae42-14a0-5058-aa47-dda8904d8f2e"
+    },
+    {
+      "date": "1999-12-31",
+      "entityId": "b37802c4-8c2a-5395-a4bb-ea0a37b1b240"
+    }
+  ]
+}

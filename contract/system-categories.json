@@ -1,0 +1,25 @@
+{
+  "description": "Реестр SYSTEM_CATEGORY_IDS (план §3.2). В sync передаётся только состояние { kind: system, isArchived }; определения (название, эмодзи, цвет, порядок) — константы приложения. UUID стабильны навсегда: удалять и менять id нельзя, добавлять можно только с обновлением сервера раньше клиентов.",
+  "status": "approved",
+  "statusNote": "Утверждено владельцем продукта 11.10.2026 как окончательный стартовый набор MVP (решение по итогам ревью E0, PR #5). UUID, ключи, эмодзи, цвета и порядок сохранены из реестра (seed migrations/versions/0002_system_categories.py); новые UUID не создавались. «Другое» не архивируется, остальные системные категории архивируются.",
+  "approval": {
+    "approvedBy": "владелец продукта",
+    "approvedAt": "2026-10-11",
+    "source": "решение владельца продукта по ревью E0 (PR #5, 11.10.2026)"
+  },
+  "fallbackCategoryId": "00000000-0000-4000-8000-000000000099",
+  "categories": [
+    {"key": "products", "id": "00000000-0000-4000-8000-000000000001", "nameRu": "Продукты", "emoji": "🛒", "colorIndex": 0, "sortOrder": 1, "archivable": true, "source": "утверждено 11.10.2026 (ревью E0); определение — seed 0002"},
+    {"key": "cafe", "id": "00000000-0000-4000-8000-000000000002", "nameRu": "Кафе и рестораны", "emoji": "🍽️", "colorIndex": 1, "sortOrder": 2, "archivable": true, "source": "утверждено 11.10.2026 (ревью E0); определение — seed 0002"},
+    {"key": "transport", "id": "00000000-0000-4000-8000-000000000003", "nameRu": "Транспорт", "emoji": "🚕", "colorIndex": 2, "sortOrder": 3, "archivable": true, "source": "утверждено 11.10.2026 (ревью E0); определение — seed 0002"},
+    {"key": "home", "id": "00000000-0000-4000-8000-000000000004", "nameRu": "Дом и ЖКХ", "emoji": "🏠", "colorIndex": 3, "sortOrder": 4, "archivable": true, "source": "утверждено 11.10.2026 (ревью E0); определение — seed 0002"},
+    {"key": "health", "id": "00000000-0000-4000-8000-000000000005", "nameRu": "Здоровье", "emoji": "💊", "colorIndex": 4, "sortOrder": 5, "archivable": true, "source": "утверждено 11.10.2026 (ревью E0); определение — seed 0002"},
+    {"key": "clothes", "id": "00000000-0000-4000-8000-000000000006", "nameRu": "Одежда и обувь", "emoji": "👕", "colorIndex": 5, "sortOrder": 6, "archivable": true, "source": "утверждено 11.10.2026 (ревью E0); определение — seed 0002"},
+    {"key": "entertainment", "id": "00000000-0000-4000-8000-000000000007", "nameRu": "Развлечения", "emoji": "🎬", "colorIndex": 6, "sortOrder": 7, "archivable": true, "source": "утверждено 11.10.2026 (ревью E0); определение — seed 0002"},
+    {"key": "telecom", "id": "00000000-0000-4000-8000-000000000008", "nameRu": "Связь и подписки", "emoji": "📱", "colorIndex": 7, "sortOrder": 8, "archivable": true, "source": "утверждено 11.10.2026 (ревью E0); определение — seed 0002"},
+    {"key": "beauty", "id": "00000000-0000-4000-8000-000000000009", "nameRu": "Красота", "emoji": "💅", "colorIndex": 8, "sortOrder": 9, "archivable": true, "source": "утверждено 11.10.2026 (ревью E0); определение — seed 0002"},
+    {"key": "gifts", "id": "00000000-0000-4000-8000-00000000000a", "nameRu": "Подарки", "emoji": "🎁", "colorIndex": 9, "sortOrder": 10, "archivable": true, "source": "утверждено 11.10.2026 (ревью E0); определение — seed 0002"},
+    {"key": "travel", "id": "00000000-0000-4000-8000-00000000000b", "nameRu": "Путешествия", "emoji": "✈️", "colorIndex": 10, "sortOrder": 11, "archivable": true, "source": "утверждено 11.10.2026 (ревью E0); определение — seed 0002"},
+    {"key": "other", "id": "00000000-0000-4000-8000-000000000099", "nameRu": "Другое", "emoji": "📦", "colorIndex": 11, "sortOrder": 99, "archivable": false, "source": "id и неархивируемость — план §3.2 [У]; определение утверждено 11.10.2026 (ревью E0)"}
+  ]
+}

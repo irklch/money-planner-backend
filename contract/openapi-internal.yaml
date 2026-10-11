@@ -1,0 +1,137 @@
+openapi: 3.1.0
+info:
+  title: Money Planner internal API
+  version: 1.0.0
+  summary: Фоновые задачи (E8). Не публикуются в API Gateway.
+  description: |
+    Эндпоинты вызываются только таймер-триггерами Yandex Cloud напрямую в Serverless Container
+    с IAM-токеном сервисного аккаунта триггера. В спецификации API Gateway (публичный контракт
+    `contract/openapi.yaml`) их нет; внешний вызов через шлюз получает `404 not_found`.
+
+    Все задачи идемпотентны: повторный и параллельный запуск безопасны (аренда заданий,
+    монотонный горизонт tombstones). Задача обрабатывает ограниченную порцию за вызов и
+    сообщает `hasMore`; следующий вызов триггера продолжает работу.
+
+    Формат ошибок — `ErrorEnvelope` публичного контракта.
+servers:
+  - url: '{containerUrl}'
+    description: Прямой URL Serverless Container (не API Gateway).
+    variables:
+      containerUrl:
+        default: http://localhost:8000
+tags:
+  - name: internal
+    description: Фоновые задачи по таймеру.
+
+x-contract:
+  stage: E0
+  publishedInGateway: false
+
+paths:
+  /internal/deletions/run:
+    post:
+      operationId: runAccountDeletions
+      tags: [internal]
+      summary: Довести задания удаления аккаунтов (§2.5 плана).
+      description: |
+        Таймер раз в 5 минут. Берёт задания с `lease_until < now`, ставит аренду на 2 минуты,
+        выполняет шаги `revoking` / `deleting` пачками до 1 000 строк, сохраняет курсор после
+        каждой пачки. Повтор с экспоненциальной задержкой до 1 ч; алерт для заданий старше 24 ч.
+      x-schedule: every 5 minutes
+      x-stage: E7
+      security:
+        - yandexIam: []
+      responses:
+        '200': {$ref: '#/components/responses/JobResult'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '503': {$ref: '#/components/responses/ServiceUnavailable'}
+
+  /internal/cleanup/tombstones:
+    post:
+      operationId: purgeTombstones
+      tags: [internal]
+      summary: Удалить tombstones старше 180 дней и сдвинуть tombstone_horizon.
+      description: Раз в сутки. Горизонт монотонный, сдвигается в той же транзакции.
+      x-schedule: daily
+      x-stage: E8
+      security:
+        - yandexIam: []
+      responses:
+        '200': {$ref: '#/components/responses/JobResult'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '503': {$ref: '#/components/responses/ServiceUnavailable'}
+
+  /internal/cleanup/guest-devices:
+    post:
+      operationId: purgeInactiveGuestDevices
+      tags: [internal]
+      summary: Удалить гостевые технические записи без запросов 12 месяцев.
+      description: |
+        Удаляются `devices`, их refresh-токены и счётчик импортов устройства, если
+        `last_seen_at` старше 12 месяцев и устройство не привязано к существующему аккаунту.
+        Apple-аккаунты в MVP автоматически не удаляются.
+      x-schedule: daily
+      x-stage: E8
+      security:
+        - yandexIam: []
+      responses:
+        '200': {$ref: '#/components/responses/JobResult'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '503': {$ref: '#/components/responses/ServiceUnavailable'}
+
+  /internal/cleanup/refresh-tokens:
+    post:
+      operationId: purgeExpiredRefreshTokens
+      tags: [internal]
+      summary: Удалить refresh-токены с истёкшим expires_at.
+      x-schedule: daily
+      x-stage: E8
+      security:
+        - yandexIam: []
+      responses:
+        '200': {$ref: '#/components/responses/JobResult'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '503': {$ref: '#/components/responses/ServiceUnavailable'}
+
+  /internal/cleanup/deleted-accounts:
+    post:
+      operationId: purgeDeletedAccounts
+      tags: [internal]
+      summary: Удалить записи deleted_accounts старше 400 дней.
+      x-schedule: daily
+      x-stage: E8
+      security:
+        - yandexIam: []
+      responses:
+        '200': {$ref: '#/components/responses/JobResult'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '503': {$ref: '#/components/responses/ServiceUnavailable'}
+
+components:
+  securitySchemes:
+    yandexIam:
+      type: http
+      scheme: bearer
+      description: IAM-токен сервисного аккаунта таймер-триггера (вызов контейнера по IAM).
+
+  responses:
+    JobResult:
+      description: Порция обработана.
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [processed, hasMore]
+            properties:
+              processed:
+                type: integer
+                minimum: 0
+                description: Сколько записей или заданий обработано за вызов.
+              hasMore:
+                type: boolean
+                description: Остались необработанные записи; продолжит следующий вызов.
+          example: {processed: 120, hasMore: false}
+    Unauthorized:
+      description: Нет или неверный IAM-токен (проверяет платформа контейнера).
+    ServiceUnavailable:
+      description: YDB недоступна или троттлинг; триггер повторит по расписанию.
