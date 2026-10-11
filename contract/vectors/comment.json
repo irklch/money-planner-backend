@@ -1,5 +1,5 @@
 {
-  "description": "Правило комментария расхода (план §3.3). normalized: NFC → удалить Cc → обрезать по краям символы категорий Zs/Zl/Zp → пустая строка = null. scalarCount — число Unicode scalar values (Python len, Swift unicodeScalars.count) нормализованной строки. syncValid — scalarCount ≤ 200 (sync не обрезает, а отклоняет rejected/invalid). importTruncated — нормализованная строка, обрезанная до наибольшего префикса из целых графем (extended grapheme clusters) длиной ≤ 200 scalar values.",
+  "description": "Правило комментария расхода (план §3.3). normalized: NFC → удалить Cc → обрезать по краям символы общих категорий Zs/Zl/Zp (Unicode General_Category; Cf и прочие невидимые символы не обрезаются) → пустая строка = null. scalarCount — число Unicode scalar values (Python len, Swift unicodeScalars.count) нормализованной строки. syncValid — scalarCount ≤ 200 (sync не обрезает, а отклоняет rejected/invalid). importTruncated — нормализованная строка, обрезанная до наибольшего префикса из целых графем (extended grapheme clusters) длиной ≤ 200 scalar values.",
   "maxScalars": 200,
   "cases": [
     {
@@ -249,6 +249,69 @@
       "scalarCount": 200,
       "syncValid": true,
       "importTruncated": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "id": "trim_all_zs_spaces",
+      "input": "           Кофе   ",
+      "normalized": "Кофе",
+      "scalarCount": 4,
+      "syncValid": true,
+      "importTruncated": "Кофе",
+      "note": "все Zs по краям: U+2000–U+200A, U+202F, U+205F, U+1680"
+    },
+    {
+      "id": "keep_inner_unicode_spaces",
+      "input": "Кофе  чай",
+      "normalized": "Кофе  чай",
+      "scalarCount": 9,
+      "syncValid": true,
+      "importTruncated": "Кофе  чай",
+      "note": "внутренние пробелы не схлопываются и не заменяются"
+    },
+    {
+      "id": "keep_bom_edge",
+      "input": "﻿Кофе",
+      "normalized": "﻿Кофе",
+      "scalarCount": 5,
+      "syncValid": true,
+      "importTruncated": "﻿Кофе",
+      "note": "U+FEFF — Cf, не обрезается"
+    },
+    {
+      "id": "keep_mongolian_vowel_separator",
+      "input": "᠎Кофе",
+      "normalized": "᠎Кофе",
+      "scalarCount": 5,
+      "syncValid": true,
+      "importTruncated": "᠎Кофе",
+      "note": "U+180E — Cf (Unicode ≥ 6.3), не обрезается; CharacterSet может считать его пробелом"
+    },
+    {
+      "id": "keep_word_joiner",
+      "input": "Кофе⁠",
+      "normalized": "Кофе⁠",
+      "scalarCount": 5,
+      "syncValid": true,
+      "importTruncated": "Кофе⁠",
+      "note": "U+2060 — Cf"
+    },
+    {
+      "id": "remove_c1_control",
+      "input": "Кофе",
+      "normalized": "Кофе",
+      "scalarCount": 4,
+      "syncValid": true,
+      "importTruncated": "Кофе",
+      "note": "C1 (U+0080–U+009F) — Cc"
+    },
+    {
+      "id": "control_between_spaces",
+      "input": " \t Кофе \n ",
+      "normalized": "Кофе",
+      "scalarCount": 4,
+      "syncValid": true,
+      "importTruncated": "Кофе",
+      "note": "Cc удаляется, затем пробелы по краям"
     }
   ]
 }

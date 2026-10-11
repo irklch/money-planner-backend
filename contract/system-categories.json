@@ -1,19 +1,21 @@
 {
-  "description": "Реестр SYSTEM_CATEGORY_IDS (план §3.2). Определения (название, эмодзи, цвет, порядок) — константы приложения; в sync передаётся только состояние { kind: system, isArchived }. UUID стабильны навсегда: удалять и менять id нельзя, добавлять можно только вместе с обновлением сервера раньше клиентов. Названия ниже — справочные, из seed 0002 (состав списка требует подтверждения владельцем продукта).",
-  "version": 1,
+  "description": "Реестр SYSTEM_CATEGORY_IDS (план §3.2). В sync передаётся только состояние { kind: system, isArchived }; определения (название, эмодзи, цвет, порядок) — константы приложения. UUID стабильны навсегда: удалять и менять id нельзя, добавлять можно только с обновлением сервера раньше клиентов.",
+  "status": "draft",
+  "statusNote": "Состав и определения НЕ утверждены. Источник — seed migrations/versions/0002_system_categories.py, помеченный «черновик списка, согласовать». В утверждённых документах (план, архитектура) зафиксированы только правила и id «Другое» (…000099). UX/UI-документов и Figma с итоговым списком в доступных материалах нет. До подтверждения владельцем продукта список не окончательный; status меняется на approved вместе с указанием источника решения.",
+  "approval": {"approvedBy": null, "approvedAt": null, "source": null},
   "fallbackCategoryId": "00000000-0000-4000-8000-000000000099",
   "categories": [
-    {"id": "00000000-0000-4000-8000-000000000001", "key": "groceries", "nameRu": "Продукты", "archivable": true},
-    {"id": "00000000-0000-4000-8000-000000000002", "key": "cafes", "nameRu": "Кафе и рестораны", "archivable": true},
-    {"id": "00000000-0000-4000-8000-000000000003", "key": "transport", "nameRu": "Транспорт", "archivable": true},
-    {"id": "00000000-0000-4000-8000-000000000004", "key": "home", "nameRu": "Дом и ЖКХ", "archivable": true},
-    {"id": "00000000-0000-4000-8000-000000000005", "key": "health", "nameRu": "Здоровье", "archivable": true},
-    {"id": "00000000-0000-4000-8000-000000000006", "key": "clothes", "nameRu": "Одежда и обувь", "archivable": true},
-    {"id": "00000000-0000-4000-8000-000000000007", "key": "entertainment", "nameRu": "Развлечения", "archivable": true},
-    {"id": "00000000-0000-4000-8000-000000000008", "key": "telecom", "nameRu": "Связь и подписки", "archivable": true},
-    {"id": "00000000-0000-4000-8000-000000000009", "key": "beauty", "nameRu": "Красота", "archivable": true},
-    {"id": "00000000-0000-4000-8000-00000000000a", "key": "gifts", "nameRu": "Подарки", "archivable": true},
-    {"id": "00000000-0000-4000-8000-00000000000b", "key": "travel", "nameRu": "Путешествия", "archivable": true},
-    {"id": "00000000-0000-4000-8000-000000000099", "key": "other", "nameRu": "Другое", "archivable": false}
+    {"key": "products", "id": "00000000-0000-4000-8000-000000000001", "nameRu": "Продукты", "emoji": "🛒", "colorIndex": 0, "sortOrder": 1, "archivable": true, "source": "seed 0002 (черновик); key — app/modules/imports/categorization.py"},
+    {"key": "cafe", "id": "00000000-0000-4000-8000-000000000002", "nameRu": "Кафе и рестораны", "emoji": "🍽️", "colorIndex": 1, "sortOrder": 2, "archivable": true, "source": "seed 0002 (черновик); key — app/modules/imports/categorization.py"},
+    {"key": "transport", "id": "00000000-0000-4000-8000-000000000003", "nameRu": "Транспорт", "emoji": "🚕", "colorIndex": 2, "sortOrder": 3, "archivable": true, "source": "seed 0002 (черновик); key — app/modules/imports/categorization.py"},
+    {"key": "home", "id": "00000000-0000-4000-8000-000000000004", "nameRu": "Дом и ЖКХ", "emoji": "🏠", "colorIndex": 3, "sortOrder": 4, "archivable": true, "source": "seed 0002 (черновик); key — предложение E0"},
+    {"key": "health", "id": "00000000-0000-4000-8000-000000000005", "nameRu": "Здоровье", "emoji": "💊", "colorIndex": 4, "sortOrder": 5, "archivable": true, "source": "seed 0002 (черновик); key — app/modules/imports/categorization.py"},
+    {"key": "clothes", "id": "00000000-0000-4000-8000-000000000006", "nameRu": "Одежда и обувь", "emoji": "👕", "colorIndex": 5, "sortOrder": 6, "archivable": true, "source": "seed 0002 (черновик); key — предложение E0"},
+    {"key": "entertainment", "id": "00000000-0000-4000-8000-000000000007", "nameRu": "Развлечения", "emoji": "🎬", "colorIndex": 6, "sortOrder": 7, "archivable": true, "source": "seed 0002 (черновик); key — предложение E0"},
+    {"key": "telecom", "id": "00000000-0000-4000-8000-000000000008", "nameRu": "Связь и подписки", "emoji": "📱", "colorIndex": 7, "sortOrder": 8, "archivable": true, "source": "seed 0002 (черновик); key — app/modules/imports/categorization.py"},
+    {"key": "beauty", "id": "00000000-0000-4000-8000-000000000009", "nameRu": "Красота", "emoji": "💅", "colorIndex": 8, "sortOrder": 9, "archivable": true, "source": "seed 0002 (черновик); key — предложение E0"},
+    {"key": "gifts", "id": "00000000-0000-4000-8000-00000000000a", "nameRu": "Подарки", "emoji": "🎁", "colorIndex": 9, "sortOrder": 10, "archivable": true, "source": "seed 0002 (черновик); key — предложение E0"},
+    {"key": "travel", "id": "00000000-0000-4000-8000-00000000000b", "nameRu": "Путешествия", "emoji": "✈️", "colorIndex": 10, "sortOrder": 11, "archivable": true, "source": "seed 0002 (черновик); key — предложение E0"},
+    {"key": "other", "id": "00000000-0000-4000-8000-000000000099", "nameRu": "Другое", "emoji": "📦", "colorIndex": 11, "sortOrder": 99, "archivable": false, "source": "id и неархивируемость — план §3.2 [У]; определение — seed 0002 (черновик)"}
   ]
 }

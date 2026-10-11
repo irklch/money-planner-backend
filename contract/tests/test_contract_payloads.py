@@ -310,3 +310,30 @@ def test_apple_notification(schema_validator):
     v = schema_validator("/components/schemas/AppleNotificationRequest")
     assert _errors(v, {"payload": "eyJ.eyJ.sig"}) == []
     assert _errors(v, {}) and _errors(v, {"payload": ""})
+
+
+def test_category_status_and_id_are_consistent(schema_validator):
+    v = schema_validator("/components/schemas/ParsedOperation")
+    base = {"date": "2026-09-18", "amount": "10.00", "comment": "X"}
+    assert _errors(v, {**base, "categoryId": OTHER, "categoryStatus": "assigned"}) == []
+    assert _errors(v, {**base, "categoryId": OTHER, "categoryStatus": "suggested"}) == []
+    assert _errors(v, {**base, "categoryId": None, "categoryStatus": "unassigned"}) == []
+    assert _errors(v, {**base, "categoryId": OTHER, "categoryStatus": "unassigned"})
+    assert _errors(v, {**base, "categoryId": None, "categoryStatus": "assigned"})
+    assert _errors(v, {**base, "categoryId": None, "categoryStatus": "suggested"})
+    assert _errors(v, {**base, "categoryId": None, "categoryStatus": "needs_review"})
+
+
+def test_no_needs_review_anywhere():
+    """Единый термин — unassigned: needs_review не используется в контракте, плане и архитектуре."""
+    from conftest import CONTRACT, ROOT
+
+    docs = ROOT / "docs"
+    files = [
+        *CONTRACT.glob("*.yaml"),
+        *CONTRACT.glob("*.json"),
+        docs / "production-migration-plan.md",
+        docs / "architecture-local-first.md",
+    ]
+    offenders = [f.name for f in files if "needs_review" in f.read_text(encoding="utf-8")]
+    assert offenders == []

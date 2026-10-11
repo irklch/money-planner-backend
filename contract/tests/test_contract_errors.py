@@ -27,7 +27,7 @@ UNAUTHORIZED_ACCOUNT = UNAUTHORIZED_GUEST | {"session_revoked", "account_deleted
 REQUIRED_BY_OPERATION = {
     ("post", "/v1/auth/guest"): {"invalid_request", "idempotency_key_reused", "rate_limited"},
     ("post", "/v1/auth/refresh"): {"refresh_token_invalid", "session_revoked", "account_deleted"},
-    ("post", "/v1/auth/apple"): {"apple_token_invalid"},
+    ("post", "/v1/auth/apple"): {"apple_token_invalid", "account_deletion_in_progress"},
     ("get", "/v1/account/deletions/{deletionId}"): {"deletion_not_found"},
     ("delete", "/v1/account"): {"account_required"},
     ("post", "/v1/sync/push"): {
@@ -96,13 +96,13 @@ def test_401_codes_follow_section_2_8(catalog):
 
 
 def test_retryable_follows_client_retry_policy(catalog):
-    # §8.1: автоматически повторяются 5xx, 503 и 429; 4xx кроме 429 — нет (409 in_progress — с Retry-After).
+    # §8.1: автоматически повторяются 5xx, 503 и 429; 4xx кроме 429 — нет; исключения — 409 с Retry-After.
     for code, e in catalog.items():
         if e["status"] >= 500 or e["status"] == 429:
             assert e["retryable"], code
             if e["status"] in (429, 503):
                 assert e.get("retryAfter"), code
-        elif code not in ("idempotency_in_progress", "token_expired"):
+        elif code not in ("idempotency_in_progress", "account_deletion_in_progress", "token_expired"):
             assert not e["retryable"], code
 
 

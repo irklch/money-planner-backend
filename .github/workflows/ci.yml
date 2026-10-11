@@ -51,6 +51,15 @@ jobs:
       - name: Contract tests
         run: pytest contract/tests -q
 
+  # Эталон правила комментария на Swift: те же векторы, что Python-эталон (contract/vectors/comment.json).
+  contract-swift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: swift --version
+      - name: Comment rule vectors (Swift reference)
+        run: swift contract/swift/comment_rule_check.swift contract/vectors/comment.json
+
   image:
     needs: test
     runs-on: ubuntu-latest

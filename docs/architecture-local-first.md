@@ -320,7 +320,7 @@ iOS: файл (≤ 2 МБ) + активные категории (id, name) + п
       2. multipart в память (существующий upload.py), файл нигде не пишется
       3. detect_format → registry → адаптер банка (детерминированный парсер, без AI)
       4. категоризация: правила → подсказки клиента → LLM только для оставшихся (≤ 500, маскированные
-         описания) → иначе needs_review; выключатель AI_CATEGORIZATION_ENABLED
+         описания) → иначе unassigned; выключатель AI_CATEGORIZATION_ENABLED
       5. ответ: importId, операции, предложенные категории; на сервере — только метаданные доставки
   → iOS: экран проверки → подтверждение показа (POST /v1/imports/{id}/displayed, надёжная очередь)
         → черновик правится локально → Local DB → обычный sync
@@ -645,7 +645,7 @@ AIService (MVP)
         │
   Обёртки: таймауты, логирование без ПДн, метрики вызовов и токенов, семафор (квота AI Studio)
   Ограничения: только операции, не распознанные правилами и подсказками; ≤ 500 описаний на импорт;
-               выключатель AI_CATEGORIZATION_ENABLED → needs_review
+               выключатель AI_CATEGORIZATION_ENABLED → unassigned
 ```
 
 - AI Studio поддерживает OpenAI-совместимый Chat Completions API ([документация](https://aistudio.yandex.ru/docs/en/ai-studio/quickstart/)). Смена модели — это смена конфигурации.

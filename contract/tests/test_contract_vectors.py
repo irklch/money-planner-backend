@@ -147,3 +147,69 @@ def test_system_category_examples_use_registry(spec, registry):
     for r in examples["PullResponse"]["value"]["records"]:
         if r["entityType"] == "category" and r["payload"]["kind"] == "system":
             assert r["entityId"] in ids
+
+
+def _seed_0002() -> list[tuple]:
+    import ast
+
+    from conftest import ROOT
+
+    src = (ROOT / "migrations" / "versions" / "0002_system_categories.py").read_text(encoding="utf-8")
+    for node in ast.walk(ast.parse(src)):
+        if isinstance(node, ast.Assign) and getattr(node.targets[0], "id", None) == "SYSTEM_CATEGORIES":
+            return ast.literal_eval(node.value)
+    raise AssertionError("SYSTEM_CATEGORIES not found")
+
+
+def test_registry_is_draft_until_approved(registry):
+    """Список не утверждён: статус draft, без источника решения. Утверждение меняет оба поля."""
+    if registry["status"] == "approved":
+        assert registry["approval"]["source"] and registry["approval"]["approvedBy"]
+    else:
+        assert registry["status"] == "draft"
+        assert registry["approval"] == {"approvedBy": None, "approvedAt": None, "source": None}
+        assert all("черновик" in c["source"] for c in registry["categories"])
+
+
+def test_registry_matches_draft_seed(registry):
+    """Пока список — черновик, реестр совпадает с seed 0002 (не расходится молча)."""
+    if registry["status"] != "draft":
+        pytest.skip("реестр утверждён отдельно от seed")
+    seed = [
+        {"id": i, "nameRu": n, "emoji": e, "colorIndex": c, "sortOrder": o} for i, n, e, c, o in _seed_0002()
+    ]
+    fields = ("id", "nameRu", "emoji", "colorIndex", "sortOrder")
+    assert [{k: c[k] for k in fields} for c in registry["categories"]] == seed
+
+
+def test_registry_definitions_shape(registry):
+    keys = [c["key"] for c in registry["categories"]]
+    assert len(keys) == len(set(keys))
+    assert [c["colorIndex"] for c in registry["categories"]] == sorted(
+        {c["colorIndex"] for c in registry["categories"]}
+    )
+    assert all(0 <= c["colorIndex"] <= 11 for c in registry["categories"])
+    orders = [c["sortOrder"] for c in registry["categories"]]
+    assert orders == sorted(orders) and len(orders) == len(set(orders))
+    other = next(c for c in registry["categories"] if c["id"] == registry["fallbackCategoryId"])
+    assert other["archivable"] is False and other["key"] == "other"
+    assert other["sortOrder"] == max(orders)
+
+
+def test_registry_keys_match_backend_rules(registry):
+    """Ключи, уже используемые правилами категоризации, указывают на те же UUID."""
+    from app.modules.imports.categorization import SYS
+
+    by_key = {c["key"]: c["id"] for c in registry["categories"]}
+    assert {k: str(v) for k, v in SYS.items()} == {k: by_key[k] for k in SYS}
+
+
+def test_spec_marks_registry_status(spec, registry):
+    assert spec["x-contract"]["systemCategoryRegistryStatus"] == registry["status"]
+
+
+def test_swift_reference_exists():
+    from conftest import CONTRACT
+
+    src = (CONTRACT / "swift" / "comment_rule_check.swift").read_text(encoding="utf-8")
+    assert "generalCategory" in src and "JSONDecoder" in src

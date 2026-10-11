@@ -44,6 +44,7 @@ x-contract:
   stage: E0
   dayMarkNamespace: 97a5414e-31da-4b51-85c7-7ea3eab0c81d
   systemCategoryRegistry: contract/system-categories.json
+  systemCategoryRegistryStatus: draft
   configParameters: contract/config-parameters.json
   commentVectors: contract/vectors/comment.json
   dayMarkVectors: contract/vectors/day-mark-id.json
@@ -64,6 +65,7 @@ x-error-catalog:
   import_not_found: {status: 404, retryable: false, description: 'Нет доставки с таким importId для этого устройства.'}
   deletion_not_found: {status: 404, retryable: false, description: 'Нет задания удаления с таким id для этого устройства.'}
   method_not_allowed: {status: 405, retryable: false, description: 'Метод не поддерживается.'}
+  account_deletion_in_progress: {status: 409, retryable: true, retryAfter: true, description: 'Аккаунт этого Apple ID удаляется. Вход станет возможен после завершения удаления (новый аккаунт). Есть Retry-After.'}
   idempotency_key_reused: {status: 409, retryable: false, description: 'Idempotency-Key повторён с другим запросом.'}
   idempotency_in_progress: {status: 409, retryable: true, retryAfter: true, description: 'Запрос с этим Idempotency-Key ещё выполняется. Есть Retry-After.'}
   resync_required: {status: 410, retryable: false, description: 'Курсор за горизонтом очистки tombstones. Нужен resync с cursor 0.'}
@@ -161,8 +163,14 @@ paths:
       summary: Ротация refresh-токена (гость и аккаунт).
       description: |
         Возвращает новую пару токенов того же субъекта. Повтор того же refresh-токена в
-        grace-окне 60 с возвращает ту же новую пару (потерянный ответ безопасен). Повтор вне
-        окна — reuse: отзывается вся family, ответ `401 refresh_token_invalid`.
+        grace-окне 60 с возвращает ту же новую пару (потерянный ответ безопасен; бюджет
+        автоматических повторов клиента 45 с меньше окна). Повтор вне окна — reuse: отзывается
+        вся family, ответ `401 refresh_token_invalid`. Потерянный ответ и повтор позже 60 с
+        поэтому приводят к `refresh_token_invalid`: гость создаёт новую гостевую запись
+        (счётчик импортов устройства начнётся заново), аккаунт переходит в `reauth_required`
+        без потери локальных данных и outbox и восстанавливается повторным входом Apple.
+        Клиент хранит текущий refresh-токен до получения ответа и не запускает два refresh
+        параллельно.
 
         Коды 401 (§2.8 плана): `refresh_token_invalid` — гость создаёт новую гостевую запись,
         аккаунт переходит в `reauth_required`; `session_revoked` — `reauth_required`, данные и
@@ -218,10 +226,22 @@ paths:
         Ответ — сессия аккаунта и `sync { lastVersion, hasData }` для выбора сценария входа
         (§2.3). Клиент сравнивает `accountId` с сохранённым при повторном входе (§2.9).
 
-        **Повтор.** `nonce` и `authorizationCode` одноразовые. Повтор после ошибки, при которой
-        запрос не дошёл до сервера (нет соединения), безопасен. Если запрос мог быть обработан
-        (таймаут ответа), повтор с теми же данными вернёт `400 apple_token_invalid`: клиент
-        запускает авторизацию Apple заново (новые `nonce` и код).
+        **Повтор и потерянный ответ.** `nonce` и `authorizationCode` одноразовые: сервер помечает
+        их использованными при обработке. Повтор запроса, который не дошёл до сервера, безопасен.
+        Если запрос был обработан, а ответ потерян, повтор с теми же данными вернёт
+        `400 apple_token_invalid`; клиент запускает авторизацию Apple заново (новые `nonce` и
+        `authorizationCode`) и повторяет вход. Сервер находит тот же аккаунт по `(apple, sub)`:
+        дубль аккаунта не создаётся, гостевые импорты повторно не атрибутируются, Apple refresh
+        token заменяется новым. Клиент до получения ответа ничего не отправлял в sync, поэтому
+        переноса данных и потери outbox нет: выбор «Объединить / Заменить» (§2.3) или
+        продолжение sync после `reauth_required` (§2.9) выполняются после успешного ответа.
+        Сессия, выданная в потерянном ответе, клиенту не доставлена и истекает сама.
+
+        **Удаление в процессе.** Если аккаунт этого Apple ID в состоянии `deleting`, ответ —
+        `409 account_deletion_in_progress` с `Retry-After`; удаление не отменяется, данные не
+        восстанавливаются, `nonce` и код не расходуются (тот же запрос можно повторить, пока
+        они действительны). После завершения удаления вход создаёт **новый** аккаунт с новым
+        `accountId` и пустым облаком.
       x-subject: guest
       x-stage: E5
       security:
@@ -250,6 +270,17 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/ErrorEnvelope'}
         '401': {$ref: '#/components/responses/UnauthorizedGuest'}
+        '409':
+          description: Аккаунт этого Apple ID удаляется; удаление не отменяется.
+          x-error-codes: [account_deletion_in_progress]
+          headers:
+            X-Request-Id: {$ref: '#/components/headers/XRequestId'}
+            Retry-After: {$ref: '#/components/headers/RetryAfter'}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ErrorEnvelope'}
+              examples:
+                deleting: {$ref: '#/components/examples/ErrorAccountDeletionInProgress'}
         '422': {$ref: '#/components/responses/ValidationFailed'}
         '500': {$ref: '#/components/responses/InternalError'}
         '503': {$ref: '#/components/responses/ServiceUnavailable'}
@@ -900,6 +931,7 @@ components:
         - import_not_found
         - deletion_not_found
         - method_not_allowed
+        - account_deletion_in_progress
         - idempotency_key_reused
         - idempotency_in_progress
         - resync_required
@@ -1497,7 +1529,10 @@ components:
           type: string
           minLength: 1
           maxLength: 40
-          description: '`merchantKey(comment)` по §7.4 п. 7 плана.'
+          description: |
+            `merchantKey(comment)` по §7.4 п. 7 плана (NFC → нижний регистр → без цифр, масок карт,
+            знаков валют и пунктуации → схлопнуть пробелы → первые 40 символов). Сервер сравнивает
+            подсказки с ключом, вычисленным по тому же правилу из названия операции.
         categoryId: {$ref: '#/components/schemas/Uuid'}
     ParseStatementForm:
       type: object
@@ -1534,9 +1569,30 @@ components:
             - type: 'null'
         categoryStatus:
           type: string
-          description: '`unassigned` — категория не определена, нужна проверка пользователем.'
+          description: |
+            - `assigned` — категория определена надёжно: правило сервера, подсказка клиента
+              (`categoryHints`) или LLM с высокой уверенностью; `categoryId` задан;
+            - `suggested` — предложение LLM со средней уверенностью; `categoryId` задан, на экране
+              проверки помечается как предложение;
+            - `unassigned` — категорию назначить не удалось (нет правила и подсказки, LLM не
+              уверен, AI выключен, недоступен, ответил ошибкой или сверх
+              `AI_MAX_DESCRIPTIONS_PER_IMPORT`); `categoryId = null`, пользователь выбирает
+              категорию на экране проверки.
+
+            Статус — только подсказка для экрана проверки; пользователь может изменить
+            категорию любой операции. `categoryId` всегда из присланных `categories`.
           enum: [assigned, suggested, unassigned]
           x-extensible-enum: true
+      if:
+        required: [categoryStatus]
+        properties:
+          categoryStatus: {const: unassigned}
+      then:
+        properties:
+          categoryId: {type: 'null'}
+      else:
+        properties:
+          categoryId: {$ref: '#/components/schemas/Uuid'}
     ParseWarning:
       type: object
       required: [code]
@@ -1557,7 +1613,10 @@ components:
       properties:
         importId:
           $ref: '#/components/schemas/Uuid'
-          description: Ключ локального черновика. Повтор с тем же ключом и файлом — тот же importId.
+          description: |
+            Ключ локального черновика. Повтор с тем же ключом и файлом — тот же importId.
+            Сервер генерирует UUIDv7: по времени в id он отличает истёкшую и удалённую по TTL
+            доставку (`410 delivery_expired`) от несуществующей (`404 import_not_found`).
         confirmed:
           type: boolean
           description: Показ уже подтверждён. Повтор не перезаписывает существующий черновик (§6.5).
@@ -1812,6 +1871,15 @@ components:
           message: Session revoked
           status: 401
           retryable: false
+          requestId: req_0123456789abcdef0123456789abcdef
+          details: []
+    ErrorAccountDeletionInProgress:
+      value:
+        error:
+          code: account_deletion_in_progress
+          message: Account deletion in progress
+          status: 409
+          retryable: true
           requestId: req_0123456789abcdef0123456789abcdef
           details: []
     ErrorResyncRequired:
