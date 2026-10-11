@@ -44,7 +44,7 @@ x-contract:
   stage: E0
   dayMarkNamespace: 97a5414e-31da-4b51-85c7-7ea3eab0c81d
   systemCategoryRegistry: contract/system-categories.json
-  systemCategoryRegistryStatus: draft
+  systemCategoryRegistryStatus: approved
   configParameters: contract/config-parameters.json
   commentVectors: contract/vectors/comment.json
   dayMarkVectors: contract/vectors/day-mark-id.json
@@ -237,7 +237,8 @@ paths:
         продолжение sync после `reauth_required` (§2.9) выполняются после успешного ответа.
         Сессия, выданная в потерянном ответе, клиенту не доставлена и истекает сама.
 
-        **Удаление в процессе.** Если аккаунт этого Apple ID в состоянии `deleting`, ответ —
+        **Удаление в процессе.** Пока задание удаления аккаунта этого Apple ID не завершено
+        (`identities` удаляется последней пачкой вместе с переходом задания в `done`), ответ —
         `409 account_deletion_in_progress` с `Retry-After`; удаление не отменяется, данные не
         восстанавливаются, `nonce` и код не расходуются (тот же запрос можно повторить, пока
         они действительны). После завершения удаления вход создаёт **новый** аккаунт с новым

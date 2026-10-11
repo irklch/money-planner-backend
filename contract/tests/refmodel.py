@@ -30,6 +30,20 @@ UNCONFIRMED_MAX = 3
 FREE_LIMIT = 3
 MAX_FILE_BYTES = 2_097_152
 DELETION_RETRY_AFTER_S = 60
+DELETION_BATCH = 1000
+DELETION_LEASE_S = 120
+DELETION_BACKOFF_MAX_S = 3600
+# Порядок шагов удаления (план §2.5): identities — последней пачкой вместе с переходом в done.
+DELETION_STEPS = (
+    "sync_records",
+    "sync_mutations",
+    "sync_state",
+    "import_ledger",
+    "apple_tokens",
+    "devices",
+    "users",
+    "identities",
+)
 BUNDLE_ID = "ru.moneyplanner.app"
 
 
@@ -96,6 +110,9 @@ class RefServer:
         self.used_codes: set[str] = set()
         self.apple_refresh_tokens: dict[str, str] = {}
         self.deletions: dict[str, dict] = {}
+        self.deleted_accounts: set[str] = set()
+        self.sync_rows: dict[str, int] = {}  # число строк sync_records аккаунта
+        self.apple_revoke = lambda token: 200  # ответ Apple /auth/revoke
         # imports
         self.deliveries: dict[tuple[str, str], dict] = {}
         self.ledger: dict[str, dict] = {}
@@ -160,7 +177,7 @@ class RefServer:
             return self.error("access_token_invalid")
         if a["kind"] == "account":
             acc = self.accounts.get(a["account"])
-            if acc is None or acc["state"] != "active":
+            if acc is None or acc["state"] != "active" or a["account"] in self.deleted_accounts:
                 return self.error("account_deleted")
             if self.families[a["family"]]["revoked"] == "session_revoked":
                 return self.error("session_revoked")
@@ -225,7 +242,7 @@ class RefServer:
             return self.error("apple_token_invalid")
         account_id = self.identities.get(tok["sub"])
         # Удаление в процессе: nonce и код не расходуются, удаление не отменяется.
-        if account_id and self.accounts[account_id]["state"] == "deleting":
+        if account_id and self._deletion_pending(account_id):
             return self.error("account_deletion_in_progress", retry_after=DELETION_RETRY_AFTER_S)
         self.used_nonces.add(_sha(nonce))
         self.used_codes.add(code)  # обмен кода у Apple: одноразовый
@@ -233,6 +250,7 @@ class RefServer:
             account_id = str(uuid.uuid4())
             self.accounts[account_id] = {"state": "active", "records": 0, "last_version": 0, "used": 0}
             self.identities[tok["sub"]] = account_id
+            self.sync_rows[account_id] = 0
         self.apple_refresh_tokens[account_id] = "apple_rt_for_" + code
         self.devices[a["did"]]["account"] = account_id
         self._attribute_guest_imports(a["did"], account_id)
@@ -273,6 +291,9 @@ class RefServer:
         body["features"] = {"imports": self._usage(used)}
         return self.ok(200, body)
 
+    def _deletion_pending(self, account_id: str) -> bool:
+        return any(j["account"] == account_id and j["state"] != "done" for j in self.deletions.values())
+
     def delete_account(self, token: str, authorization_code: str | None = None) -> Resp:
         a = self.access.get(token or "")
         if a and a["kind"] == "account" and a["exp"] > self.now:
@@ -282,40 +303,95 @@ class RefServer:
         a = self._auth(token, ("account",))
         if isinstance(a, Resp):
             return a
+        # Синхронная часть: задание, users.state = deleting, отзыв сессий, deleted_accounts.
         job_id = str(uuid.uuid4())
-        has_token = a["account"] in self.apple_refresh_tokens or authorization_code
+        apple_token = self.apple_refresh_tokens.get(a["account"]) or (
+            "apple_rt_for_" + authorization_code if authorization_code else None
+        )
         self.deletions[job_id] = {
             "id": job_id,
             "account": a["account"],
             "did": a["did"],
             "state": "revoking",
-            "revocation": "pending" if has_token else "skipped_no_token",
+            "revocation": "pending" if apple_token else "skipped_no_token",
+            "apple_token": apple_token,
+            "step": 0,
+            "cursor": 0,
+            "attempts": 0,
+            "lease_until": 0.0,
+            "next_run": 0.0,
             "updated": self.now,
+            "batches": 0,
         }
         self.accounts[a["account"]]["state"] = "deleting"
+        self.deleted_accounts.add(a["account"])
         for fam in self.families.values():
             if fam["account"] == a["account"]:
                 fam["revoked"] = "account_deleted"
         return self.ok(202, {"deletionId": job_id, "state": "revoking"})
 
-    def run_deletions(self) -> None:
-        """Фоновое задание: данные удаляются, identities — последней пачкой вместе с переходом в done."""
+    def run_deletions(self, max_batches: int | None = None) -> None:
+        """Фоновое продолжение (/internal/deletions/run): аренда, пачки, курсор после каждой пачки.
+
+        max_batches — сколько пачек успевает экземпляр до «падения»: аренда при этом не снимается,
+        следующий запуск продолжит с сохранённого курсора после истечения аренды.
+        """
+        budget = max_batches
         for job in self.deletions.values():
-            if job["state"] == "done":
+            if job["state"] == "done" or job["lease_until"] > self.now or job["next_run"] > self.now:
                 continue
+            job["lease_until"] = self.now + DELETION_LEASE_S
             acc_id = job["account"]
-            self.apple_refresh_tokens.pop(acc_id, None)
+            # Шаг отзыва Apple независим от удаления данных; задание завершается после обоих.
             if job["revocation"] == "pending":
-                job["revocation"] = "done"
-            # Записи реестра с account_id = A и счётчик аккаунта удаляются; счётчик устройства остаётся.
+                status = self.apple_revoke(job["apple_token"])
+                if status == 200:
+                    job["revocation"] = "done"
+                else:  # сеть, 5xx, 400 invalid_client: повтор с backoff (и алерт)
+                    job["attempts"] += 1
+                    job["next_run"] = self.now + min(DELETION_BACKOFF_MAX_S, 60 * 2 ** job["attempts"])
+                    job["state"] = "failed_retrying"
+            while job["step"] < len(DELETION_STEPS):
+                if budget is not None and budget <= 0:
+                    return  # экземпляр «упал»: аренда остаётся до истечения
+                step = DELETION_STEPS[job["step"]]
+                if step == "identities" and job["revocation"] == "pending":
+                    break  # последний шаг — только после отзыва
+                done_step = self._delete_batch(step, acc_id, job)
+                job["batches"] += 1
+                if budget is not None:
+                    budget -= 1
+                if done_step:
+                    job["step"], job["cursor"] = job["step"] + 1, 0
+                if job["state"] != "failed_retrying":
+                    job["state"] = "deleting"
+                job["updated"] = self.now
+            if job["step"] == len(DELETION_STEPS):
+                job["state"] = "done"
+            job["lease_until"] = 0.0
+            job["updated"] = self.now
+
+    def _delete_batch(self, step: str, acc_id: str, job: dict) -> bool:
+        """Одна транзакция до DELETION_BATCH строк. True — шаг завершён."""
+        if step == "sync_records":
+            left = self.sync_rows.get(acc_id, 0) - DELETION_BATCH
+            self.sync_rows[acc_id] = max(0, left)
+            job["cursor"] += DELETION_BATCH
+            return left <= 0
+        if step == "import_ledger":
+            # Записи с account_id = A и счётчик аккаунта; счётчик устройства остаётся.
             self.ledger = {k: r for k, r in self.ledger.items() if r["account"] != acc_id}
-            self.accounts[acc_id]["used"] = 0
+        elif step == "apple_tokens":
+            self.apple_refresh_tokens.pop(acc_id, None)
+        elif step == "devices":
             for dev in self.devices.values():
                 if dev["account"] == acc_id:
                     dev["account"] = None
+        elif step == "users":
+            self.accounts.pop(acc_id, None)
+        elif step == "identities":
             self.identities = {s: a for s, a in self.identities.items() if a != acc_id}
-            self.accounts[acc_id]["state"] = "deleted"
-            job["state"], job["updated"] = "done", self.now
+        return True
 
     def deletion_status(self, token: str, deletion_id: str) -> Resp:
         a = self._auth(token, ("guest",))

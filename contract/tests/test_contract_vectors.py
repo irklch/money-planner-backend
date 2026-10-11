@@ -161,25 +161,45 @@ def _seed_0002() -> list[tuple]:
     raise AssertionError("SYSTEM_CATEGORIES not found")
 
 
-def test_registry_is_draft_until_approved(registry):
-    """Список не утверждён: статус draft, без источника решения. Утверждение меняет оба поля."""
-    if registry["status"] == "approved":
-        assert registry["approval"]["source"] and registry["approval"]["approvedBy"]
-    else:
-        assert registry["status"] == "draft"
-        assert registry["approval"] == {"approvedBy": None, "approvedAt": None, "source": None}
-        assert all("черновик" in c["source"] for c in registry["categories"])
+# Утверждённый стартовый набор MVP (решение владельца продукта, ревью E0, 11.10.2026).
+APPROVED = [
+    ("Продукты", "🛒"),
+    ("Кафе и рестораны", "🍽️"),
+    ("Транспорт", "🚕"),
+    ("Дом и ЖКХ", "🏠"),
+    ("Здоровье", "💊"),
+    ("Одежда и обувь", "👕"),
+    ("Развлечения", "🎬"),
+    ("Связь и подписки", "📱"),
+    ("Красота", "💅"),
+    ("Подарки", "🎁"),
+    ("Путешествия", "✈️"),
+    ("Другое", "📦"),
+]
 
 
-def test_registry_matches_draft_seed(registry):
-    """Пока список — черновик, реестр совпадает с seed 0002 (не расходится молча)."""
-    if registry["status"] != "draft":
-        pytest.skip("реестр утверждён отдельно от seed")
+def test_registry_is_approved_with_source(registry):
+    assert registry["status"] == "approved"
+    approval = registry["approval"]
+    assert approval["approvedBy"] and approval["source"] and approval["approvedAt"] == "2026-10-11"
+
+
+def test_registry_matches_approved_list(registry):
+    assert [(c["nameRu"], c["emoji"]) for c in registry["categories"]] == APPROVED
+
+
+def test_registry_keeps_seed_ids_and_definitions(registry):
+    """Утверждение не меняло UUID, цвета и порядок: реестр совпадает с seed 0002."""
     seed = [
         {"id": i, "nameRu": n, "emoji": e, "colorIndex": c, "sortOrder": o} for i, n, e, c, o in _seed_0002()
     ]
     fields = ("id", "nameRu", "emoji", "colorIndex", "sortOrder")
     assert [{k: c[k] for k in fields} for c in registry["categories"]] == seed
+
+
+def test_only_fallback_is_not_archivable(registry):
+    flags = {c["key"]: c["archivable"] for c in registry["categories"]}
+    assert [k for k, v in flags.items() if not v] == ["other"]
 
 
 def test_registry_definitions_shape(registry):

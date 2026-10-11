@@ -274,6 +274,100 @@ class TestDeletion:
         assert st.body["appleTokenRevocation"] == "skipped_no_token"
 
 
+class TestDeletionJob:
+    """Порядок шагов, прерывание, аренда, повторы и восстановление фонового задания (план §2.5)."""
+
+    def _start(self, server, call, sub, rows=2500):
+        g = new_guest(server, call)
+        a = sign_in(server, call, g, rm.AppleIdentity.new(sub, server.now)).body
+        server.sync_rows[a["accountId"]] = rows
+        did = call("delete", "/v1/account", server.delete_account, a["accessToken"]).body["deletionId"]
+        return g, a, did
+
+    def test_identities_is_the_last_step(self):
+        assert rm.DELETION_STEPS[-1] == "identities"
+        assert rm.DELETION_STEPS.index("users") < rm.DELETION_STEPS.index("identities")
+
+    def test_interrupted_job_resumes_from_cursor(self, server, call):
+        g, a, did = self._start(server, call, "sub-int")
+        server.run_deletions(max_batches=2)  # экземпляр «упал» после 2 пачек sync_records
+        job = server.deletions[did]
+        assert (rm.DELETION_STEPS[job["step"]], job["cursor"]) == ("sync_records", 2000)
+        assert job["state"] == "deleting" and server.sync_rows[a["accountId"]] == 500
+        # до завершения вход тем же Apple ID — 409, повтор DELETE — тот же id
+        ident = rm.AppleIdentity.new("sub-int", server.now)
+        assert sign_in(server, call, g, ident).code == "account_deletion_in_progress"
+        assert (
+            call("delete", "/v1/account", server.delete_account, a["accessToken"]).body["deletionId"] == did
+        )
+        server.run_deletions()  # аренда ещё действует — другой экземпляр не берёт задание
+        assert server.deletions[did]["batches"] == 2
+        server.tick(rm.DELETION_LEASE_S + 1)
+        server.run_deletions()
+        job = server.deletions[did]
+        # продолжение с курсора: всего 3 пачки sync_records + по одной на остальные шаги
+        assert job["state"] == "done" and job["batches"] == 3 + len(rm.DELETION_STEPS) - 1
+        assert server.sync_rows[a["accountId"]] == 0
+        assert a["accountId"] not in server.accounts and a["accountId"] not in server.identities.values()
+        assert a["accountId"] not in server.apple_refresh_tokens
+        fresh = sign_in(server, call, g, rm.AppleIdentity.new("sub-int", server.now)).body
+        assert fresh["accountId"] != a["accountId"]
+
+    def test_interrupted_before_identities_still_409(self, server, call):
+        g, a, did = self._start(server, call, "sub-late", rows=10)
+        server.run_deletions(max_batches=len(rm.DELETION_STEPS) - 1)  # всё, кроме identities
+        assert a["accountId"] not in server.accounts  # users уже удалён
+        assert server.identities["sub-late"] == a["accountId"]
+        busy = sign_in(server, call, g, rm.AppleIdentity.new("sub-late", server.now))
+        assert busy.code == "account_deletion_in_progress"
+        assert call("get", "/v1/me", server.me, a["accessToken"]).code == "account_deleted"
+        server.tick(rm.DELETION_LEASE_S + 1)
+        server.run_deletions()
+        assert server.deletions[did]["state"] == "done"
+
+    def test_apple_revoke_failure_retries_with_backoff(self, server, call):
+        g, a, did = self._start(server, call, "sub-rev", rows=10)
+        server.apple_revoke = lambda token: 503
+        server.run_deletions()
+        job = server.deletions[did]
+        assert job["state"] == "failed_retrying" and job["revocation"] == "pending"
+        assert job["step"] == len(rm.DELETION_STEPS) - 1  # данные удалены, identities ждёт отзыва
+        st = call("get", "/v1/account/deletions/{deletionId}", server.deletion_status, g["accessToken"], did)
+        assert st.body["state"] == "failed_retrying"
+        assert sign_in(server, call, g, rm.AppleIdentity.new("sub-rev", server.now)).code == (
+            "account_deletion_in_progress"
+        )
+        server.apple_revoke = lambda token: 200
+        server.run_deletions()  # backoff ещё не истёк
+        assert server.deletions[did]["state"] == "failed_retrying"
+        server.tick(rm.DELETION_BACKOFF_MAX_S)
+        server.run_deletions()
+        tok = call("post", "/v1/auth/refresh", server.refresh_session, g["refreshToken"]).body["accessToken"]
+        st = call("get", "/v1/account/deletions/{deletionId}", server.deletion_status, tok, did)
+        assert (st.body["state"], st.body["appleTokenRevocation"]) == ("done", "done")
+
+    def test_fresh_authorization_code_used_without_stored_token(self, server, call):
+        g = new_guest(server, call)
+        a = sign_in(server, call, g, rm.AppleIdentity.new("sub-code", server.now)).body
+        server.apple_refresh_tokens.clear()
+        did = call("delete", "/v1/account", server.delete_account, a["accessToken"], "fresh-code").body[
+            "deletionId"
+        ]
+        revoked = []
+        server.apple_revoke = lambda token: revoked.append(token) or 200
+        server.run_deletions()
+        assert revoked == ["apple_rt_for_fresh-code"]
+        assert server.deletions[did]["revocation"] == "done"
+
+    def test_rerun_after_done_is_noop(self, server, call):
+        _, _, did = self._start(server, call, "sub-noop", rows=1)
+        server.run_deletions()
+        before = dict(server.deletions[did])
+        server.tick(rm.DELETION_LEASE_S + 1)
+        server.run_deletions()
+        assert server.deletions[did] == before
+
+
 # --- импорт: идемпотентность и черновик --------------------------------------------------------
 class TestImportIdempotency:
     @pytest.fixture

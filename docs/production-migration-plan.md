@@ -180,7 +180,7 @@ GET /v1/account/deletions/{deletionId}   (гостевой токен ТОГО �
    - если кода нет — `revoke_skipped_no_token` в задании. Удаление данных продолжается, клиент показывает подсказку «отключите приложение в настройках Apple ID»;
    - отзыв не блокирует удаление данных: шаги 2 и 3 независимы, задание завершается после обоих.
 3. **`deleting`:**
-   - по таблицам в фиксированном порядке (`sync_records`, `sync_mutations`, `sync_state`, `import_ledger` и счётчики аккаунта, `apple_tokens`, отвязка `devices.account_id`, `users`, `identities`) пачками до 1 000 строк на транзакцию (лимиты транзакций YDB). `identities` удаляется последней пачкой в одной транзакции с переводом задания в `done`: до этого момента вход тем же Apple ID видит удаляемый аккаунт;
+   - по таблицам в фиксированном порядке (`sync_records`, `sync_mutations`, `sync_state`, `import_ledger` и счётчики аккаунта, `apple_tokens`, отвязка `devices.account_id`, `users`, `identities`) пачками до 1 000 строк на транзакцию (лимиты транзакций YDB). `identities` удаляется последней пачкой в одной транзакции с переводом задания в `done` [У, ревью E0]: до этого момента вход тем же Apple ID получает `409 account_deletion_in_progress`. Последний шаг выполняется только после отзыва Apple-токена (или `revoke_skipped_no_token`);
    - курсор `(step, cursor)` сохраняется после каждой пачки;
    - refresh-токены аккаунта **не удаляются** до истечения: в них только хэш, family и наш UUID пользователя, они нужны, чтобы `/auth/refresh` отвечал `account_deleted`, а не `refresh_token_invalid`. Их очищает задача по `expires_at`.
 4. **Фоновое продолжение:**
@@ -758,7 +758,7 @@ A1 — параллельно после E0, векторы нужны iOS до 
 
 ### 11.1a. Результат E0 [Т]
 
-Контракт — `contract/openapi.yaml` (публичный), `contract/openapi-internal.yaml` (`/internal/*`), реестр системных категорий, параметры §6.3 и тест-векторы в `contract/`; правила — `docs/api-contract.md`. Проверка — `scripts/contract_spec.py --check` и `contract/tests` (задача CI `openapi`). Технические уточнения, решения ревью E0 и открытые вопросы — `docs/api-contract.md` §12–§14. Сценарии контракта на эталонной модели (`contract/tests/refmodel.py`) переиспользуются в E2–E7 против приложения.
+Контракт — `contract/openapi.yaml` (публичный), `contract/openapi-internal.yaml` (`/internal/*`), реестр системных категорий, параметры §6.3 и тест-векторы в `contract/`; правила — `docs/api-contract.md`. Проверка — `scripts/contract_spec.py --check` и `contract/tests` (задача CI `openapi`). Технические уточнения и решения ревью E0 — `docs/api-contract.md` §12–§13. E0 завершён 11.10.2026 (PR #5). Сценарии контракта на эталонной модели (`contract/tests/refmodel.py`) переиспользуются в E2–E7 против приложения.
 
 ### 11.2. Замена старого кода по этапам [Т]
 
