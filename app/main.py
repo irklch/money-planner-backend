@@ -9,13 +9,8 @@ from app.core.openapi import install_openapi
 from app.core.secrets import load_lockbox_into_env
 from app.db.session import dispose_engine, init_engine
 from app.modules.account.router import router as account_router
-from app.modules.analytics.router import router as analytics_router
 from app.modules.auth.router import router as auth_router
-from app.modules.calendar.router import router as calendar_router
-from app.modules.categories.router import router as categories_router
-from app.modules.expenses.router import router as expenses_router
 from app.modules.imports.router import router as imports_router
-from app.modules.insights.router import router as insights_router
 
 
 @asynccontextmanager
@@ -48,17 +43,10 @@ def create_app() -> FastAPI:
     install_handlers(app)
     install_openapi(app)
 
+    # E1 (план §11.2): expenses, categories CRUD, calendar, analytics, insights уходят на iOS или вне MVP
+    # и отключены из приложения. Код модулей удаляется в E11; auth, account, imports заменяются в E2–E7.
     v1 = APIRouter(prefix="/v1")
-    for r in (
-        auth_router,
-        account_router,
-        categories_router,
-        imports_router,
-        expenses_router,
-        calendar_router,
-        analytics_router,
-        insights_router,
-    ):
+    for r in (auth_router, account_router, imports_router):
         v1.include_router(r)
     app.include_router(v1)
 
