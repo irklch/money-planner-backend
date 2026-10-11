@@ -82,13 +82,3 @@ async def headers(guest):
 PRODUCTS = "00000000-0000-4000-8000-000000000001"
 CAFE = "00000000-0000-4000-8000-000000000002"
 OTHER = "00000000-0000-4000-8000-000000000099"
-
-
-async def add_expense(client, headers, date, amount="100.00", category=PRODUCTS, comment=None):
-    r = await client.post(
-        "/v1/expenses",
-        json={"date": date, "amount": amount, "categoryId": category, "comment": comment},
-        headers={**headers, "Idempotency-Key": str(uuid.uuid4())},
-    )
-    assert r.status_code == 201, r.text
-    return r.json()
