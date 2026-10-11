@@ -12,12 +12,27 @@
 ## Запуск
 
 ```bash
-docker compose up -d db
-docker compose run --rm tests            # pytest против реального PostgreSQL 16
+docker compose up -d db ydb
+docker compose run --rm tests            # полный pytest: PostgreSQL 16 + локальная YDB
 docker compose up --build api            # http://localhost:8000/docs
 ```
 
 Локально без Docker нужен Python 3.12: `pip install . --group dev`, затем `pytest`.
+
+## Новый backend на YDB (этап E1)
+
+Слой `app/db_ydb`: подключение (IAM в облаке, анонимно — только к локальной YDB), пул 1–2 сессий, повторы с бюджетом времени, serializable-транзакции, учёт RU в access-логе (`ydb_ru`, `ydb_calls`). Временные ошибки YDB после повторов → `503 service_unavailable` + `Retry-After`.
+
+```bash
+docker compose up -d ydb                                  # локальная YDB (GHCR, без платной инфраструктуры)
+export YDB_ENDPOINT=grpc://localhost:2136 YDB_DATABASE=/local
+python -m app.db_ydb.migrate             # применить миграции (повторный запуск ничего не делает)
+python -m app.db_ydb.migrate --status    # applied / pending
+python -m app.db_ydb.migrate --check     # exit 1, если есть неприменённые
+YDB_TESTS_REQUIRED=1 pytest tests_ydb    # unit + интеграция на локальной YDB
+```
+
+Миграции — `app/db_ydb/migrations/NNNN_name.sql`: только `CREATE TABLE IF NOT EXISTS`, версии подряд, применённый файл не меняется (контрольная сумма в `schema_migrations`). В облаке миграции — отдельный шаг с правом DDL, не при старте контейнера. Контейнер слушает `$PORT`.
 
 ## Структура
 
@@ -37,6 +52,8 @@ app/
     insights/    AI-выводы по готовым фактам с проверкой чисел
   jobs/        purge_inactive_users (12 мес), check_ai
 migrations/    0001 — схема, 0002 — системные категории (предварительный seed), 0003 — результат импорта
+db_ydb/ (в app/) слой YDB: client, migrate, migrations/*.sql, metering (RU)
+tests_ydb/     тесты E1 без PostgreSQL: unit и интеграция на локальной YDB
 scripts/       openapi.py — экспорт и --check контракта кода; contract_spec.py — проверка contract/
 contract/      контракт API v1 (OpenAPI 3.1), реестр системных категорий, лимиты, тест-векторы, контрактные тесты
 deploy/        Yandex Cloud: COI compose, Caddy, инструкция
