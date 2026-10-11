@@ -35,11 +35,12 @@ app/
     imports/     POST /imports/parse — чтение в памяти, реестр банков, маскирование ПДн, категоризация
     analytics/   summary, dynamics — средние по учтённым дням
     insights/    AI-выводы по готовым фактам с проверкой чисел
-  jobs/        purge_inactive_users (12 мес), check_ai
+  jobs/        purge_inactive_users (12 мес), check_ai, fence_check (защита от двух основных серверов)
 migrations/    0001 — схема, 0002 — системные категории (предварительный seed), 0003 — результат импорта
 scripts/       openapi.py — экспорт и --check контракта кода; contract_spec.py — проверка contract/
 contract/      контракт API v1 (OpenAPI 3.1), реестр системных категорий, лимиты, тест-векторы, контрактные тесты
-deploy/        Yandex Cloud: COI compose, Caddy, инструкция
+deploy/        portable/ — любой сервер с Docker, копии БД вне облака; корень — Yandex Cloud (COI)
+docs/          disaster-recovery.md — аварийный план; infra-audit-2026-10-11.md — состояние инфраструктуры
 ```
 
 ## Как реализованы ключевые правила

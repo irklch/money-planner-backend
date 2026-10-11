@@ -86,3 +86,23 @@ jobs:
             ${{ env.IMAGE }}:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  # Переносимое развёртывание (deploy/portable): скрипты, compose и учения по восстановлению
+  # в изолированном окружении на синтетических данных. Секреты и облако не используются.
+  portable-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Shell syntax
+        run: |
+          bash -n deploy/portable/*.sh deploy/portable/backup/backup.sh
+          shellcheck -S warning deploy/portable/*.sh deploy/portable/backup/backup.sh
+      - name: Compose file is valid
+        working-directory: deploy/portable
+        run: |
+          cp env.example .env
+          sed -i 's/^\(API_DOMAIN\|FENCE_EXPECTED_IP\|INSTANCE_NAME\|POSTGRES_PASSWORD\)=$/\1=ci/' .env
+          docker compose config --quiet
+          rm .env
+      - name: Backup and restore drill
+        run: deploy/portable/drill.sh
