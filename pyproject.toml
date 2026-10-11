@@ -18,6 +18,8 @@ dependencies = [
     "httpx>=0.27",
     "emoji>=2.12",
     "tzdata>=2024.1",  # IANA-база для zoneinfo в slim-образе
+    # YDB: Query Service (async), IAM через сервис метаданных; та же ветка, что проверена прототипом
+    "ydb[yc]>=3.33,<4",
 ]
 
 [dependency-groups]
@@ -38,7 +40,8 @@ dev = [
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "session"
 asyncio_default_test_loop_scope = "session"
-testpaths = ["tests", "contract/tests"]
+testpaths = ["tests", "contract/tests", "tests_ydb"]
+markers = ["ydb: интеграционный тест на локальной YDB (YDB_ENDPOINT)"]
 
 [tool.ruff]
 line-length = 110
@@ -54,3 +57,6 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 include = ["app*"]
+
+[tool.setuptools.package-data]
+"app.db_ydb" = ["migrations/*.sql"]

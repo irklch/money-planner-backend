@@ -6,7 +6,6 @@ TEST_SHOP_* в образце вымышленные, поэтому катег�
 
 import io
 import logging
-import uuid
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
@@ -23,7 +22,7 @@ from app.modules.imports.masking import mask_pii
 from app.modules.imports.parsing import registry
 from app.modules.imports.parsing.alfa import AlfaBankAdapter
 from app.modules.imports.parsing.reader import read_table
-from tests.conftest import CAFE, OTHER, PRODUCTS
+from tests.conftest import CAFE, PRODUCTS
 from tests.test_parse import FakeLLM
 
 FIXTURE = Path(__file__).parent / "fixtures" / "banks" / "alfa" / "alfa_statement_test.xlsx"
@@ -305,7 +304,8 @@ async def count_expenses() -> int:
         return await s.scalar(select(func.count()).select_from(Expense))
 
 
-async def test_api_parse_sample_then_import_idempotent(client, headers):
+async def test_api_parse_sample(client, headers):
+    # Сохранение через POST /v1/expenses/import отключено в E1 (план §11.2): импорт сохраняет клиент.
     r = await upload(client, headers, FIXTURE.read_bytes())
     assert r.status_code == 200, r.text
     body = r.json()
@@ -325,25 +325,6 @@ async def test_api_parse_sample_then_import_idempotent(client, headers):
     assert len([o for o in ops if o["comment"].startswith("Категория: Перевод по СБП")]) == 25
     # Без ИИ вымышленные магазины не получают категорий.
     assert {(o["categoryId"], o["categoryStatus"]) for o in ops} == {(None, "unassigned")}
-
-    # Пользователь проверил список и выбрал категорию — сохраняем.
-    payload = {
-        "expenses": [
-            {"date": o["date"], "amount": o["amount"], "categoryId": OTHER, "comment": o["comment"]}
-            for o in ops
-        ]
-    }
-    h = {**headers, "Idempotency-Key": str(uuid.uuid4())}
-    r1 = await client.post("/v1/expenses/import", json=payload, headers=h)
-    assert r1.status_code == 201, r1.text
-    assert r1.json() == {"importedCount": 120, "dateFrom": "2024-04-01", "dateTo": "2024-04-30"}
-    async with sessionmaker()() as s:
-        assert await s.scalar(select(func.sum(Expense.amount))) == Decimal("293923.83")
-
-    r2 = await client.post("/v1/expenses/import", json=payload, headers=h)
-    assert r2.status_code == 201 and r2.headers["Idempotent-Replayed"] == "true"
-    assert r2.json() == r1.json()
-    assert await count_expenses() == 120
 
 
 # ---------- Категоризация и ПДн ----------

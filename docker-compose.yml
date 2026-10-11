@@ -13,6 +13,22 @@ services:
       retries: 30
     tmpfs: ["/var/lib/postgresql/data"]
 
+  # Локальная YDB для нового backend (E1). Тот же образ и версия, что в CI (GHCR, без лимитов Docker Hub).
+  # Без аутентификации — порты только на 127.0.0.1. Discovery отдаёт localhost:2136, поэтому клиенты
+  # в compose (tests) живут в сетевом пространстве ydb.
+  ydb:
+    image: ghcr.io/ydb-platform/local-ydb:26.2.1.14
+    platform: linux/amd64   # образ только amd64; на Apple Silicon — через Rosetta
+    hostname: localhost
+    ports: ["127.0.0.1:2136:2136", "127.0.0.1:8765:8765"]
+    environment:
+      GRPC_PORT: "2136"
+      YDB_USE_IN_MEMORY_PDISKS: "true"
+    healthcheck:
+      test: ["CMD", "/ydb", "-e", "grpc://localhost:2136", "-d", "/local", "scheme", "ls"]
+      interval: 3s
+      retries: 60
+
   api:
     build: { context: ., target: runtime }
     environment:
@@ -30,5 +46,10 @@ services:
       ENV: test
       DATABASE_URL: postgresql+asyncpg://money:money@db:5432/money_test
       ADMIN_DATABASE_URL: postgresql+asyncpg://money:money@db:5432/money
-    depends_on: { db: { condition: service_healthy } }
+      YDB_ENDPOINT: grpc://localhost:2136
+      YDB_DATABASE: /local
+    network_mode: "service:ydb"   # см. комментарий у ydb; db доступна по имени
+    depends_on:
+      db: { condition: service_healthy }
+      ydb: { condition: service_healthy }
     volumes: ["./:/srv"]

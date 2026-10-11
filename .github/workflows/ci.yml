@@ -8,9 +8,10 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    # Образы — из зеркал без лимитов анонимных загрузок Docker Hub (план §11.1): ECR Public и GHCR.
     services:
       postgres:
-        image: postgres:16
+        image: public.ecr.aws/docker/library/postgres:16
         env:
           POSTGRES_USER: money
           POSTGRES_PASSWORD: money
@@ -18,10 +19,25 @@ jobs:
         ports: ["5432:5432"]
         options: >-
           --health-cmd "pg_isready -U money" --health-interval 2s --health-retries 30
+      # Локальная YDB для tests_ydb; hostname localhost — discovery отдаёт доступный адрес.
+      ydb:
+        image: ghcr.io/ydb-platform/local-ydb:26.2.1.14
+        ports: ["2136:2136"]
+        env:
+          GRPC_PORT: "2136"
+          YDB_USE_IN_MEMORY_PDISKS: "true"
+        options: >-
+          --hostname localhost
+          --health-cmd "/ydb -e grpc://localhost:2136 -d /local scheme ls"
+          --health-interval 3s --health-retries 60
     env:
       ENV: test
       DATABASE_URL: postgresql+asyncpg://money:money@localhost:5432/money_test
       ADMIN_DATABASE_URL: postgresql+asyncpg://money:money@localhost:5432/money
+      YDB_ENDPOINT: grpc://localhost:2136
+      YDB_DATABASE: /local
+      # Интеграционные тесты YDB не пропускаются: без YDB прогон падает.
+      YDB_TESTS_REQUIRED: "1"
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
@@ -50,6 +66,52 @@ jobs:
         run: python scripts/contract_spec.py --check
       - name: Contract tests
         run: pytest contract/tests -q
+
+  # Новый backend на YDB (E1): миграции через CLI на чистой базе и повторно, проверка схемы,
+  # runtime-образ на $PORT с подключением к YDB. Облачных ресурсов не использует.
+  ydb:
+    runs-on: ubuntu-latest
+    services:
+      ydb:
+        image: ghcr.io/ydb-platform/local-ydb:26.2.1.14
+        ports: ["2136:2136"]
+        env:
+          GRPC_PORT: "2136"
+          YDB_USE_IN_MEMORY_PDISKS: "true"
+        options: >-
+          --hostname localhost
+          --health-cmd "/ydb -e grpc://localhost:2136 -d /local scheme ls"
+          --health-interval 3s --health-retries 60
+    env:
+      ENV: dev
+      YDB_ENDPOINT: grpc://localhost:2136
+      YDB_DATABASE: /local
+      YDB_TABLE_PREFIX: mp_ci
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install --upgrade "pip>=25.1" && pip install .
+      - name: Migrations on a clean database
+        run: python -m app.db_ydb.migrate
+      - name: Migrations are idempotent (second run applies nothing)
+        run: python -m app.db_ydb.migrate | tee migrate2.log && grep -q "nothing (up to date)" migrate2.log
+      - name: Schema is up to date
+        run: python -m app.db_ydb.migrate --check
+      - name: sync_records index is GLOBAL SYNC with COVER columns
+        run: |
+          docker exec ${{ job.services.ydb.id }} /ydb -e grpc://localhost:2136 -d /local \
+            scheme describe mp_ci/sync_records | tee describe.log
+          grep -E "by_version +│ GlobalSync +│ user_id,version +│ created_at,.*payload" describe.log
+      - name: Runtime image listens on $PORT and reaches YDB
+        run: |
+          docker build --target runtime -t money-planner-api:ydb-smoke .
+          docker run -d --name api --network host -e PORT=8081 -e ENV=dev \
+            -e YDB_ENDPOINT -e YDB_DATABASE -e YDB_TABLE_PREFIX money-planner-api:ydb-smoke
+          for i in $(seq 1 30); do curl -fsS localhost:8081/healthz && exit 0; sleep 1; done
+          docker logs api; exit 1
 
   # Эталон правила комментария на Swift: те же векторы, что Python-эталон (contract/vectors/comment.json).
   contract-swift:

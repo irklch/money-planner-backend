@@ -760,6 +760,14 @@ A1 — параллельно после E0, векторы нужны iOS до 
 
 Контракт — `contract/openapi.yaml` (публичный), `contract/openapi-internal.yaml` (`/internal/*`), реестр системных категорий, параметры §6.3 и тест-векторы в `contract/`; правила — `docs/api-contract.md`. Проверка — `scripts/contract_spec.py --check` и `contract/tests` (задача CI `openapi`). Технические уточнения и решения ревью E0 — `docs/api-contract.md` §12–§13. E0 завершён 11.10.2026 (PR #5). Сценарии контракта на эталонной модели (`contract/tests/refmodel.py`) переиспользуются в E2–E7 против приложения.
 
+### 11.1b. Результат E1 [Т]
+
+- Слой `app/db_ydb` (пул 1–2, повторы с бюджетом, транзакции, учёт RU), миграции `app/db_ydb/migrations` с журналом `schema_migrations`, схема MVP (15 таблиц) — миграция `0001`.
+- Конфигурация: параметры §6.3 в env, значения по умолчанию = `contract/config-parameters.json`; prod требует `grpcs://` и `YDB_AUTH=metadata`.
+- `/healthz` по контракту E0; Dockerfile на `$PORT`.
+- CI: YDB в задаче `test` (полный прогон без пропусков), задача `ydb` (миграции через CLI, схема, runtime-образ); образы — из зеркал GHCR и ECR Public.
+- Отключены `expenses`, `categories` CRUD, `calendar`, `analytics`, `insights` и их тесты. `auth`, `account`, `imports` остаются на PostgreSQL до E2–E7, поэтому PostgreSQL в CI сохраняется до E11; новый слой и его тесты PostgreSQL не используют.
+
 ### 11.2. Замена старого кода по этапам [Т]
 
 Выпущенных клиентов и пользовательских данных нет [У], поэтому старый API не поддерживается параллельно с новым: новый контракт заменяет старый на месте.

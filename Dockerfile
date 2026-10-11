@@ -22,6 +22,8 @@ COPY migrations ./migrations
 COPY app ./app
 RUN useradd --uid 10001 --no-create-home appuser
 USER appuser
+ENV PORT=8000
 EXPOSE 8000
 # Файлы выписок не пишутся на диск: корневая ФС контейнера в проде read-only (см. deploy/).
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips=*", "--no-access-log"]
+# Serverless Containers передаёт порт в $PORT (план E1). exec — сигналы доходят до uvicorn.
+CMD ["sh", "-c", "exec uvicorn app.main:app --host 0.0.0.0 --port \"${PORT}\" --proxy-headers --forwarded-allow-ips=* --no-access-log"]
