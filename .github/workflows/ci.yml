@@ -97,12 +97,9 @@ jobs:
         run: |
           bash -n deploy/portable/*.sh deploy/portable/backup/backup.sh
           shellcheck -S warning deploy/portable/*.sh deploy/portable/backup/backup.sh
-      - name: Compose file is valid
-        working-directory: deploy/portable
-        run: |
-          cp env.example .env
-          sed -i 's/^\(API_DOMAIN\|FENCE_EXPECTED_IP\|INSTANCE_NAME\|POSTGRES_PASSWORD\)=$/\1=ci/' .env
-          docker compose config --quiet
-          rm .env
+      - name: Compose is valid, only intended ports are published
+        # Тестовый режим: наружу ничего; публичный (COMPOSE_PROFILES=public): только caddy 80/443;
+        # PostgreSQL не публикуется; публичный режим без API_DOMAIN не собирается.
+        run: python3 deploy/portable/check_exposure.py
       - name: Backup and restore drill
         run: deploy/portable/drill.sh
