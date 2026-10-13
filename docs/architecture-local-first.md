@@ -311,7 +311,8 @@ iOS: UI ─ Local DB (SwiftData/GRDB, источник истины)
    └─ /v1/apple/notifications                      (Sign in with Apple, server-to-server)
   maintenance: фоновые задачи (очистка tombstones, доставок, гостевых записей, доведение удалений) — команды
                внутри сети Compose, наружу не публикуются
-  fence_check: сервис стартует, только если домен API указывает на эту ВМ (защита от двух основных серверов)
+  fence_check: проверка при старте, что домен API указывает на эту ВМ (дополнительная, не гарантия;
+               единственный пишущий сервер обеспечивает подтверждённая остановка старого — disaster-recovery §5)
               ↓↑ сеть Compose, пароль из .env; порт БД не публикуется
 PostgreSQL 16 (том pgdata):
    devices, users, identities, refresh_tokens, apple_tokens (шифротекст, ключ приложения),
