@@ -14,7 +14,14 @@ work=$(mktemp -d)
 port=${DRILL_PORT:-18080}
 base=http://127.0.0.1:$port
 dc() { docker compose -p "$project" -f docker-compose.yml -f "$work/override.yml" --env-file "$work/.env" "$@"; }
-cleanup() { dc down -v --remove-orphans >/dev/null 2>&1 || true; rm -rf "$work"; }
+cleanup() {
+	dc down -v --remove-orphans >/dev/null 2>&1 || true
+	# Копии в $work/remote создаёт контейнер backup от root: на Linux удалить их может только root.
+	if [ -d "$work/remote" ] && docker image inspect money-planner-backup:local >/dev/null 2>&1; then
+		docker run --rm -v "$work/remote:/remote" --entrypoint sh money-planner-backup:local -c 'rm -rf /remote/*'
+	fi
+	rm -rf "$work"
+}
 trap cleanup EXIT
 t0=$(date +%s)
 tick() { echo "[$(( $(date +%s) - t0 ))s] $*"; }
