@@ -4,8 +4,12 @@
 #
 #   deploy/portable/drill.sh
 #
-# Сценарий: поднять сервер → записать данные через API → зашифрованная копия → уничтожить сервер
-# вместе с томами → новый сервер → восстановить последнюю копию → проверить данные и старую сессию.
+# Сценарий повторяет docs/disaster-recovery.md §2–§3 командами Compose:
+#   первый сервер → данные через API → схема откатывается на предыдущую ревизию (копия «старой версии») →
+#   зашифрованная копия → сервер уничтожается вместе с томами →
+#   новый сервер: только пустая БД (install.sh --prepare) → backup restore → миграции и приложение
+#   (install.sh без --prepare) → проверка данных, ревизии схемы и старой сессии.
+# Пароль БД намеренно содержит символы, которые ломают URL при простой подстановке.
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -32,12 +36,13 @@ docker run --rm --entrypoint age-keygen money-planner-backup:local 2>/dev/null >
 recipient=$(grep -o 'age1[0-9a-z]*' "$work/age.key")
 uuid() { python3 -c "import uuid; print(uuid.uuid4())"; }
 rnd() { openssl rand -base64 48 | tr -d '\n/+='; }
+db_password="$(openssl rand -base64 30 | tr -d '\n')/+=@:%?&~"
 cat >"$work/.env" <<EOF
 API_DOMAIN=drill.localhost
 FENCE_EXPECTED_IP=127.0.0.1
 FENCE_MODE=off
 INSTANCE_NAME=mp-drill
-POSTGRES_PASSWORD=$(rnd)
+POSTGRES_PASSWORD=$db_password
 JWT_SECRET=$(rnd)
 TOKEN_DERIVATION_SECRET=$(rnd)
 AI_ENABLED=false
@@ -73,6 +78,14 @@ for i in 1 2 3; do
 done
 before=$(curl -sS --fail-with-body "$base/v1/expenses?from=2026-09-01&to=2026-09-30" "${auth[@]}" | json '["items"]' | sort)
 
+sql() { dc exec -T db psql -U money -d money -At -c "$1" </dev/null; }
+head_rev=$(sql "select version_num from alembic_version")
+old_rev=0002_system_categories
+tick "roll the schema back to $old_rev (backup of an older schema version)"
+dc stop api >/dev/null
+dc run --rm -T --entrypoint python migrate -m alembic downgrade "$old_rev" >/dev/null
+[ "$(sql "select version_num from alembic_version")" = "$old_rev" ] || { echo "drill: downgrade failed"; exit 1; }
+
 tick "encrypted backup to the off-site directory"
 dc run --rm -T backup once
 ls "$work/remote/mp-drill"
@@ -82,11 +95,21 @@ head -c 21 "$work/remote/mp-drill/"*.dump.age | grep -qx 'age-encryption.org/v1'
 tick "destroy the first server with all volumes"
 dc down -v >/dev/null
 
-tick "new server: empty database, restore latest backup"
+tick "new server, step 1 (install.sh --prepare): only the empty database"
 t_restore=$(date +%s)
 dc up -d --wait db >/dev/null
+running=$(dc ps --status running --services | sort | tr '\n' ' ')
+[ "$running" = "db " ] || { echo "drill: expected only db running, got: $running"; exit 1; }
+[ "$(sql "select count(*) from information_schema.tables where table_schema = 'public'")" = 0 ] ||
+	{ echo "drill: new database is not empty"; exit 1; }
+
+tick "step 2: backup restore latest"
 dc run --rm -T backup restore latest
+[ "$(sql "select version_num from alembic_version")" = "$old_rev" ] || { echo "drill: restored revision mismatch"; exit 1; }
+
+tick "step 3 (install.sh): migrations $old_rev -> $head_rev, then the application"
 dc up -d --wait migrate api >/dev/null
+[ "$(sql "select version_num from alembic_version")" = "$head_rev" ] || { echo "drill: migrations did not reach head"; exit 1; }
 tick "restore finished in $(( $(date +%s) - t_restore ))s"
 
 tick "verify data and the pre-disaster session"
@@ -98,4 +121,4 @@ after=$(curl -sS --fail-with-body "$base/v1/expenses?from=2026-09-01&to=2026-09-
 [ "$before" = "$after" ] || { echo "drill: FAILED, expenses differ"; echo "$before"; echo "$after"; exit 1; }
 ./smoke.sh "$base" >/dev/null
 
-tick "drill passed: 3 expenses and the guest session survived a full server loss"
+tick "drill passed: data and the guest session survived a full server loss; $old_rev backup migrated to $head_rev"
