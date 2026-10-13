@@ -35,8 +35,10 @@ done
 [ "$JWT_SECRET" != "$TOKEN_DERIVATION_SECRET" ] || die "JWT_SECRET and TOKEN_DERIVATION_SECRET must differ"
 if $test_mode; then
 	[ "${FENCE_MODE:-}" = off ] || die "--test requires FENCE_MODE=off (no domain points to a test server)"
+	[ -z "${COMPOSE_PROFILES:-}" ] || die "--test requires empty COMPOSE_PROFILES (Caddy must not run without a domain)"
 	services=(db migrate api maintenance backup)
 else
+	[ "${COMPOSE_PROFILES:-}" = public ] || die "set COMPOSE_PROFILES=public in .env (Caddy, HTTPS)"
 	[ "${FENCE_MODE:-enforce}" = enforce ] || echo "install: WARNING: FENCE_MODE=$FENCE_MODE, protection against two primaries is off" >&2
 	services=()
 fi

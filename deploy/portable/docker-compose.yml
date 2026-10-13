@@ -96,6 +96,9 @@ services:
     logging: *logging
 
   caddy:
+    # Только с профилем public (COMPOSE_PROFILES=public в .env production). На тестовом стенде
+    # без домена Caddy не нужен, а опубликованные им порты 80/443 Docker открывает в обход ufw.
+    profiles: ["public"]
     image: caddy:2
     restart: always
     ports: ["80:80", "443:443"]
