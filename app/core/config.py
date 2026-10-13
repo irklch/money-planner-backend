@@ -1,7 +1,7 @@
 import re
 from functools import lru_cache
 
-from pydantic import Field, SecretStr, field_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _MODEL_URI_RE = re.compile(r"^gpt://[A-Za-z0-9_-]+/[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)?$")
@@ -17,6 +17,13 @@ class Settings(BaseSettings):
 
     # --- База данных ---
     database_url: SecretStr = SecretStr("postgresql+asyncpg://money:money@localhost:5432/money")
+    # Либо DATABASE_URL целиком, либо части (deploy/portable): URL собирается через SQLAlchemy,
+    # поэтому спецсимволы пароля (/ + = @ : % ? &) кодируются корректно.
+    db_host: str | None = None
+    db_port: int = 5432
+    db_name: str | None = None
+    db_user: str | None = None
+    db_password: SecretStr | None = None
     db_ssl_root_cert: str | None = None  # путь к CA Yandex Managed PostgreSQL
     db_pool_size: int = 10
     db_max_overflow: int = 5
@@ -61,6 +68,34 @@ class Settings(BaseSettings):
 
     # --- Lockbox ---
     lockbox_secret_id: str | None = None
+
+    @model_validator(mode="after")
+    def _database_url_from_parts(self) -> "Settings":
+        parts = {
+            "DB_HOST": self.db_host,
+            "DB_NAME": self.db_name,
+            "DB_USER": self.db_user,
+            "DB_PASSWORD": self.db_password,
+        }
+        if not any(v is not None for v in parts.values()):
+            return self
+        if "database_url" in self.model_fields_set:
+            raise ValueError("set either DATABASE_URL or DB_HOST/DB_NAME/DB_USER/DB_PASSWORD, not both")
+        missing = [k for k, v in parts.items() if v is None]
+        if missing:
+            raise ValueError(f"missing {', '.join(missing)}")
+        from sqlalchemy.engine import URL
+
+        url = URL.create(
+            "postgresql+asyncpg",
+            username=self.db_user,
+            password=self.db_password.get_secret_value(),
+            host=self.db_host,
+            port=self.db_port,
+            database=self.db_name,
+        )
+        self.database_url = SecretStr(url.render_as_string(hide_password=False))
+        return self
 
     @field_validator("ai_model_categorize", "ai_model_insights")
     @classmethod

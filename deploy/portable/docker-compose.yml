@@ -8,7 +8,11 @@ x-app: &app
   env_file: .env
   environment:
     ENV: prod
-    DATABASE_URL: postgresql+asyncpg://money:${POSTGRES_PASSWORD:?}@db:5432/money
+    # URL собирает приложение (app/core/config.py): пароль не подставляется в URL как есть.
+    DB_HOST: db
+    DB_NAME: money
+    DB_USER: money
+    DB_PASSWORD: ${POSTGRES_PASSWORD:?}
     FENCE_DOMAIN: ${API_DOMAIN:?}
   read_only: true            # выписки физически некуда записать на диск
   tmpfs: ["/tmp"]
