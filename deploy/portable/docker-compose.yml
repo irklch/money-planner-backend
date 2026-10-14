@@ -1,0 +1,120 @@
+# Переносимое развёртывание: любой Linux-сервер с Docker, без сервисов облачного провайдера.
+# Инструкция — deploy/portable/README.md, аварийный план — docs/disaster-recovery.md.
+# Все параметры и секреты — в deploy/portable/.env (шаблон env.example, права 600, в git не попадает).
+
+x-app: &app
+  build: { context: ../.., target: runtime }
+  image: money-planner-api:${IMAGE_TAG:-local}
+  env_file: .env
+  environment:
+    ENV: prod
+    # URL собирает приложение (app/core/config.py): пароль не подставляется в URL как есть.
+    DB_HOST: db
+    DB_NAME: money
+    DB_USER: money
+    DB_PASSWORD: ${POSTGRES_PASSWORD:?}
+    FENCE_DOMAIN: ${API_DOMAIN:?}
+  read_only: true            # выписки физически некуда записать на диск
+  tmpfs: ["/tmp"]
+  logging: &logging
+    driver: json-file
+    options: { max-size: "10m", max-file: "5" }
+  depends_on:
+    db: { condition: service_healthy }
+
+services:
+  db:
+    image: postgres:16
+    restart: always
+    environment:
+      POSTGRES_USER: money
+      POSTGRES_DB: money
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?}
+    volumes: ["pgdata:/var/lib/postgresql/data"]
+    # Порт наружу не публикуется: БД доступна только из сети compose.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U money -d money"]
+      interval: 5s
+      retries: 30
+    logging: *logging
+
+  migrate:
+    <<: *app
+    command: ["sh", "-c", "python -m app.jobs.fence_check && exec alembic upgrade head"]
+    restart: "no"
+
+  api:
+    <<: *app
+    restart: always
+    # fence_check при каждом старте контейнера: Docker перезапускает его без учёта depends_on.
+    command:
+      - sh
+      - -c
+      - >-
+        python -m app.jobs.fence_check &&
+        exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers
+        --forwarded-allow-ips=* --no-access-log
+    depends_on:
+      db: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
+    expose: ["8000"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    ports: ["127.0.0.1:8000:8000"]   # только для локальной проверки на сервере (scripts/smoke)
+
+  maintenance:
+    # Удаление guest после 12 мес неактивности — раз в сутки.
+    <<: *app
+    restart: always
+    command:
+      - sh
+      - -c
+      - python -m app.jobs.fence_check && while true; do python -m app.jobs.purge_inactive_users; sleep 86400; done
+    depends_on:
+      db: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
+
+  backup:
+    # pg_dump → age (публичный ключ) → копия вне облака через rclone. Сервер расшифровать копии не может.
+    build: ./backup
+    image: money-planner-backup:local
+    restart: always
+    env_file: .env
+    environment:
+      PGHOST: db
+      PGUSER: money
+      PGDATABASE: money
+      PGPASSWORD: ${POSTGRES_PASSWORD:?}
+      FENCE_DOMAIN: ${API_DOMAIN:?}
+    volumes: ["backups:/backups"]
+    command: ["loop"]
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/backup.sh", "health"]
+      interval: 10m
+      start_period: 15m
+    depends_on:
+      db: { condition: service_healthy }
+    logging: *logging
+
+  caddy:
+    # Только с профилем public (COMPOSE_PROFILES=public в .env production). На тестовом стенде
+    # без домена Caddy не нужен, а опубликованные им порты 80/443 Docker открывает в обход ufw.
+    profiles: ["public"]
+    image: caddy:2
+    restart: always
+    ports: ["80:80", "443:443"]
+    environment:
+      API_DOMAIN: ${API_DOMAIN:?}
+    volumes:
+      - ../Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+    depends_on: [api]
+    logging: *logging
+
+volumes:
+  pgdata: {}
+  backups: {}
+  caddy_data: {}

@@ -86,3 +86,20 @@ jobs:
             ${{ env.IMAGE }}:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  # Переносимое развёртывание (deploy/portable): скрипты, compose и учения по восстановлению
+  # в изолированном окружении на синтетических данных. Секреты и облако не используются.
+  portable-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Shell syntax
+        run: |
+          bash -n deploy/portable/*.sh deploy/portable/backup/backup.sh
+          shellcheck -S warning deploy/portable/*.sh deploy/portable/backup/backup.sh
+      - name: Compose is valid, only intended ports are published
+        # Тестовый режим: наружу ничего; публичный (COMPOSE_PROFILES=public): только caddy 80/443;
+        # PostgreSQL не публикуется; публичный режим без API_DOMAIN не собирается.
+        run: python3 deploy/portable/check_exposure.py
+      - name: Backup and restore drill
+        run: deploy/portable/drill.sh

@@ -1,5 +1,7 @@
 # Развёртывание в Yandex Cloud
 
+> **Статус на 11.10.2026:** эта схема в облаке не применялась (реестр пуст, Lockbox и Managed PG не созданы, см. [`docs/infra-audit-2026-10-11.md`](../docs/infra-audit-2026-10-11.md)). Она привязана к Yandex Cloud: Lockbox, Managed PG, Container Registry, Cloud Logging, metadata-IAM. Переносимое развёртывание без этих зависимостей — [`deploy/portable`](portable/README.md), аварийный план — [`docs/disaster-recovery.md`](../docs/disaster-recovery.md).
+
 Всё размещается в `ru-central1`. Секреты хранятся только в Lockbox, в репозитории и в metadata VM их нет.
 
 ## 1. Сервисный аккаунт VM

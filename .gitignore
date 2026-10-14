@@ -12,3 +12,7 @@ __pycache__/
 statements/
 secrets/
 *.pem
+# Локальные копии и ключи шифрования (deploy/portable)
+.backups-local/
+*.age
+*age*.key
