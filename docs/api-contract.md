@@ -6,7 +6,7 @@
 
 | Файл | Что |
 |---|---|
-| [`contract/openapi.yaml`](../contract/openapi.yaml) | OpenAPI 3.1, публичные эндпоинты MVP (публикуются в API Gateway) |
+| [`contract/openapi.yaml`](../contract/openapi.yaml) | OpenAPI 3.1, публичные эндпоинты MVP |
 | [`contract/openapi-internal.yaml`](../contract/openapi-internal.yaml) | `/internal/*` — фоновые задачи по таймеру, в шлюзе **не** публикуются |
 | [`contract/system-categories.json`](../contract/system-categories.json) | реестр `SYSTEM_CATEGORY_IDS` (§3.2 плана) |
 | [`contract/config-parameters.json`](../contract/config-parameters.json) | параметры конфигурации §6.3, константы протокола, параметры повторов клиента §8.1 |
@@ -35,7 +35,7 @@
 | `POST /v1/imports/parse` | гость или аккаунт (`Idempotency-Key`) | 200 | E3, E4 |
 | `POST /v1/imports/{importId}/displayed` | гость или аккаунт (то же устройство) | 200 | E4 |
 | `POST /v1/apple/notifications` | — (JWS Apple) | 200 | E7 |
-| `POST /internal/deletions/run`, `/internal/cleanup/*` | IAM таймер-триггера | 200 | E7, E8 |
+| `POST /internal/deletions/run`, `/internal/cleanup/*` | снаружи недоступны; по D24 — команды `maintenance` (пересмотр в E8) | 200 | E7, E8 |
 
 Аналитических эндпоинтов нет: аналитика считается на устройстве (план §7).
 
@@ -193,7 +193,7 @@
 
 | Что | Лимит | Ответ при превышении |
 |---|---|---|
-| Файл выписки | `IMPORT_MAX_FILE_BYTES` = 2 МБ (запрос через API Gateway — до 2,5 МБ с заголовками) | `413 file_too_large` |
+| Файл выписки | `IMPORT_MAX_FILE_BYTES` = 2 МБ (тело запроса дополнительно ограничивает Caddy) | `413 file_too_large` |
 | Операций в выписке | `IMPORT_MAX_OPERATIONS` = 5 000 | `422 statement_too_large` |
 | Время разбора | `IMPORT_PARSE_TIMEOUT_S` = 30 с | `503 processing_timeout` + `Retry-After` |
 | Частота разбора | 5 в минуту, 10 в сутки на устройство | `429 rate_limited` + `Retry-After` |
@@ -208,7 +208,7 @@
 | Сумма расхода | `0.01` … `999999999.99`, строка ровно с 2 знаками | `rejected/invalid` |
 | Бесплатные импорты | `IMPORT_FREE_LIMIT` = 3, `ENFORCE_QUOTAS=false` | не блокируется, только `state` |
 
-Параметры `env` меняются переменными окружения ревизии без релиза; константы `protocol` — только новой версией контракта.
+Параметры `env` меняются переменными окружения сервера (`deploy/portable/.env`, перезапуск `api`) без релиза; константы `protocol` — только новой версией контракта.
 
 ## 7. Пагинация
 
@@ -293,7 +293,7 @@ swift contract/swift/comment_rule_check.swift contract/vectors/comment.json   # 
 
 **Сценарии на эталонной модели** (`contract/tests/refmodel.py`, `test_contract_scenarios.py`): авторизация и коды 401, потерянные ответы входа Apple и refresh, удаление и вход во время удаления, идемпотентность импорта и клиентский черновик, граница валидации push и условие `410`. Каждый ответ модели проверяется против `contract/openapi.yaml`. На этапах E2–E7 те же сценарии запускаются против приложения.
 
-**Привязка кода к контракту (E1+).** Начиная с этапа, который реализует эндпоинт (`x-stage`), `scripts/openapi.py --check` сравнивает схему приложения с `contract/openapi.yaml` для реализованных операций, а тесты этапа проверяют ответы приложения против схем контракта (`contract_spec.schema_validator`). Изменение контракта — отдельным коммитом с обновлением этого документа.
+**Привязка кода к контракту (E1+).** `x-contract.implementedThrough` — последний реализованный этап (сейчас **E1**: `/healthz`). `contract/tests/test_contract_implementation.py` проверяет, что все эндпоинты с `x-stage` не позже него смонтированы в приложении. Пути более поздних этапов, которые пока обслуживает старый код (`POST /v1/auth/refresh` до E2, `POST /v1/imports/parse` до E3), перечислены в `LEGACY` этого теста с этапом замены и реализацией контракта не считаются. Ответы реализованных эндпоинтов тесты этапа проверяют против схем контракта (`contract_spec.schema_validator`, `tests/test_e1_service.py`). `scripts/openapi.py --check` сверяет `openapi.json` с кодом. Изменение контракта — отдельным коммитом с обновлением этого документа.
 
 ## 12. Уточнения к плану, сделанные в E0 [Т]
 
