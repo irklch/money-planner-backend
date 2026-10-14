@@ -687,14 +687,14 @@ AIService (MVP)
 
 | Компонент | Изменение | Этап |
 |---|---|---|
-| `app/db/models.py`, `migrations/` | Новая схема MVP (§7.1) одной миграцией Alembic вместо таблиц `expenses`, `categories`, `free_days`, `expense_imports` | E1 |
+| `app/db/models.py`, `migrations/` | Схема MVP (§7.1) — `app/db/schema.py`, миграция 0004; старые `users`/`refresh_tokens` переименованы в `legacy_*` и работают до E2–E7 (**сделано в E1**, план §11.1c) | E1 |
 | `app/modules/auth/*`, `app/core/security.py` | Гостевой вход → `POST /v1/auth/guest` (запись устройства, claim `did`); ротация refresh, grace-окно, reuse detection и идемпотентный повтор сохраняются; коды 401 (план §2.8); Sign in with Apple | E2, E5 |
 | `app/modules/imports/upload.py` | Лимит 10 → 2 МБ (`IMPORT_MAX_FILE_BYTES`) | E3 |
 | `app/modules/imports/service.py`, `categorization.py` | Категории и подсказки приходят в запросе, а не из БД; цепочка «правила → подсказки → LLM»; выключатель AI; обрезка комментария по графемам; `importId` и учёт без блокировки | E3, E4 |
 | `app/ai/yandex.py`, `provider.py` | → `AIService.classify_transactions`; доступ по API-ключу (без metadata-IAM); модель из конфигурации | E3 |
 | `app/core/deps.py` | `current_subject` (устройство или аккаунт) из JWT | E2 |
 | `app/core/rate_limit.py` | Лимиты и параллельность — в памяти процесса (один процесс); суточные лимиты (`IMPORT_RATE_PER_DAY`) — в таблице `rate_counters` | E2, E3 |
-| `app/core/config.py`, `app/core/secrets.py` | Параметры §6.3 плана в env; загрузка из Lockbox и metadata-IAM удаляются | E1 |
+| `app/core/config.py` | Параметры §6.3 плана в env; Lockbox (`app/core/secrets.py`) и metadata-IAM удалены (**сделано в E1**) | E1 |
 | `app/modules/account/router.py` | `DELETE /v1/account` → возобновляемое задание удаления, отзыв Apple-токена, `deleted_accounts`, статус по гостевому токену | E7 |
 | `app/jobs/purge_inactive_users.py` | → набор команд `maintenance`: гостевые записи (12 мес.), tombstones, доставки, refresh-токены по сроку, доведение удалений | E8 |
 | `/healthz` | 503 `service_unavailable` + `Retry-After`, если PostgreSQL недоступен (контракт E0) | E1 |
@@ -704,8 +704,8 @@ AIService (MVP)
 - `app/modules/expenses/*` — CRUD, `POST /expenses/import`, идемпотентность через `expense_imports`;
 - `app/modules/categories/*` (CRUD), `app/modules/calendar/*`, `app/modules/analytics/*` — логика уходит в iOS: 9 видов аналитики по плану §7, отметки дня по §4;
 - `app/modules/insights/*` — AI-инсайты вне MVP; `validate_item` сохраняется в истории git;
-- `deploy/docker-compose.prod.yml`, `deploy/Caddyfile` в корне `deploy/` (Yandex COI, Lockbox, fluent-bit) — после перехода на `deploy/portable`; `deploy/Caddyfile` переносится в `deploy/portable`;
-- `app/core/secrets.py` (Lockbox), metadata-IAM в `app/ai/yandex.py`;
+- старые таблицы (`legacy_users`, `legacy_refresh_tokens`, `categories`, `expenses`, `free_days`, `expense_imports`) — миграцией в E11;
+- удалено в E1: `deploy/docker-compose.prod.yml` (Yandex COI), `app/core/secrets.py` (Lockbox), metadata-IAM в `app/ai/yandex.py`;
 - тесты удаляемых модулей; `openapi.json` перегенерировать; `docs/contract-changes.md` пересмотреть.
 
 Модули, уходящие на iOS или вне MVP, отключаются в E1 вместе с их тестами (как в PR #6); их код удаляется в E11.
