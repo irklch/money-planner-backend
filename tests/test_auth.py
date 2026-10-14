@@ -4,7 +4,7 @@ from datetime import timedelta
 from sqlalchemy import func, select, update
 
 from app.core.security import hash_refresh_token, utcnow
-from app.db.models import Category, RefreshToken
+from app.db.models import Category, LegacyRefreshToken
 from app.db.session import sessionmaker
 from tests.conftest import auth
 
@@ -64,8 +64,8 @@ async def test_refresh_rotation_grace_and_reuse(client, guest):
     # Вне grace-окна повтор старого токена = reuse → отзыв всей цепочки.
     async with sessionmaker()() as s:
         await s.execute(
-            update(RefreshToken)
-            .where(RefreshToken.token_hash == hash_refresh_token(old))
+            update(LegacyRefreshToken)
+            .where(LegacyRefreshToken.token_hash == hash_refresh_token(old))
             .values(rotated_at=utcnow() - timedelta(minutes=5))
         )
         await s.commit()
@@ -78,8 +78,8 @@ async def test_refresh_rotation_grace_and_reuse(client, guest):
 async def test_refresh_expired(client, guest):
     async with sessionmaker()() as s:
         await s.execute(
-            update(RefreshToken)
-            .where(RefreshToken.token_hash == hash_refresh_token(guest["refreshToken"]))
+            update(LegacyRefreshToken)
+            .where(LegacyRefreshToken.token_hash == hash_refresh_token(guest["refreshToken"]))
             .values(expires_at=utcnow() - timedelta(seconds=1))
         )
         await s.commit()
@@ -94,7 +94,7 @@ async def test_refresh_unknown_token(client):
 
 async def test_refresh_token_stored_only_as_hash(client, guest):
     async with sessionmaker()() as s:
-        hashes = (await s.scalars(select(RefreshToken.token_hash))).all()
+        hashes = (await s.scalars(select(LegacyRefreshToken.token_hash))).all()
     assert guest["refreshToken"] not in hashes
     assert hash_refresh_token(guest["refreshToken"]) in hashes
 

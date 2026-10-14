@@ -5,7 +5,7 @@ from alembic import context
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from app.core.config import get_settings
-from app.core.secrets import load_lockbox_into_env
+from app.db import schema  # noqa: F401 — таблицы схемы MVP регистрируются в Base.metadata
 from app.db.models import Base
 from app.db.session import build_engine
 
@@ -34,7 +34,6 @@ def _do_run(connection) -> None:
 
 
 async def run_migrations_online() -> None:
-    load_lockbox_into_env()
     get_settings.cache_clear()
     engine: AsyncEngine = build_engine(get_settings())
     async with engine.connect() as connection:

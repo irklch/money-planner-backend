@@ -7,7 +7,7 @@ from sqlalchemy import func, select, text, update
 
 from app.core.config import get_settings
 from app.core.security import derive_refresh_token, hash_refresh_token, utcnow
-from app.db.models import RefreshToken, User
+from app.db.models import LegacyRefreshToken, LegacyUser
 from app.db.session import sessionmaker
 
 BODY = {"platform": "ios", "appVersion": "1.0"}
@@ -20,8 +20,8 @@ async def anon(client, key):
 async def counts():
     async with sessionmaker()() as s:
         return (
-            await s.scalar(select(func.count()).select_from(User)),
-            await s.scalar(select(func.count()).select_from(RefreshToken)),
+            await s.scalar(select(func.count()).select_from(LegacyUser)),
+            await s.scalar(select(func.count()).select_from(LegacyRefreshToken)),
         )
 
 
@@ -41,7 +41,7 @@ async def test_replay_recomputes_same_token_and_db_has_only_hash(client):
     token = derive_refresh_token(get_settings(), "anon", key)
     assert token == first["refreshToken"]
     async with sessionmaker()() as s:
-        row = (await s.execute(text("SELECT * FROM refresh_tokens"))).mappings().one()
+        row = (await s.execute(text("SELECT * FROM legacy_refresh_tokens"))).mappings().one()
         assert row["token_hash"] == hash_refresh_token(token)
         # Открытого токена и самого ключа нет ни в одной колонке.
         dump = " ".join(str(v) for v in row.values())
@@ -69,7 +69,9 @@ async def test_replay_after_revocation_or_window_returns_no_token(client):
     token_hash = hash_refresh_token(first["refreshToken"])
     async with sessionmaker()() as s:
         await s.execute(
-            update(RefreshToken).where(RefreshToken.token_hash == token_hash).values(revoked_at=utcnow())
+            update(LegacyRefreshToken)
+            .where(LegacyRefreshToken.token_hash == token_hash)
+            .values(revoked_at=utcnow())
         )
         await s.commit()
     r = await anon(client, key)
@@ -79,8 +81,8 @@ async def test_replay_after_revocation_or_window_returns_no_token(client):
     first2 = (await anon(client, key2)).json()
     async with sessionmaker()() as s:
         await s.execute(
-            update(RefreshToken)
-            .where(RefreshToken.token_hash == hash_refresh_token(first2["refreshToken"]))
+            update(LegacyRefreshToken)
+            .where(LegacyRefreshToken.token_hash == hash_refresh_token(first2["refreshToken"]))
             .values(created_at=utcnow() - timedelta(hours=25))
         )
         await s.commit()

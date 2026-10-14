@@ -42,7 +42,7 @@ async def clean():
     set_llm_client(None)
     yield
     async with sessionmaker()() as s:
-        await s.execute(text("DELETE FROM users"))
+        await s.execute(text("DELETE FROM legacy_users"))
         await s.commit()
     set_llm_client(None)
 

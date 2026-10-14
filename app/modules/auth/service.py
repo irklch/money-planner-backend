@@ -23,7 +23,7 @@ from app.core.security import (
     hash_refresh_token,
     utcnow,
 )
-from app.db.models import RefreshToken, User
+from app.db.models import LegacyRefreshToken, LegacyUser
 from app.modules.auth.schemas import AuthSession
 
 ROTATE = "rotate"
@@ -34,7 +34,9 @@ def _lock_key(value: str) -> int:
     return int.from_bytes(uuid.uuid5(uuid.NAMESPACE_OID, value).bytes[:8], "big", signed=True)
 
 
-def _session(settings: Settings, user_id: uuid.UUID, refresh_token: str, row: RefreshToken) -> AuthSession:
+def _session(
+    settings: Settings, user_id: uuid.UUID, refresh_token: str, row: LegacyRefreshToken
+) -> AuthSession:
     access, access_exp = create_access_token(settings, user_id)
     return AuthSession(
         user_id=user_id,
@@ -46,8 +48,8 @@ def _session(settings: Settings, user_id: uuid.UUID, refresh_token: str, row: Re
     )
 
 
-def _new_row(settings: Settings, user_id: uuid.UUID, token: str, family_id: uuid.UUID) -> RefreshToken:
-    return RefreshToken(
+def _new_row(settings: Settings, user_id: uuid.UUID, token: str, family_id: uuid.UUID) -> LegacyRefreshToken:
+    return LegacyRefreshToken(
         id=uuid.uuid4(),
         user_id=user_id,
         token_hash=hash_refresh_token(token),
@@ -64,7 +66,9 @@ async def create_anonymous(
     token_hash = hash_refresh_token(token)
     await session.execute(select(func.pg_advisory_xact_lock(_lock_key(f"anon:{key}"))))
 
-    existing = await session.scalar(select(RefreshToken).where(RefreshToken.token_hash == token_hash))
+    existing = await session.scalar(
+        select(LegacyRefreshToken).where(LegacyRefreshToken.token_hash == token_hash)
+    )
     if existing is not None:
         window = timedelta(hours=settings.anonymous_idempotency_window_hours)
         # Отдаём токен повторно, только пока он остаётся единственным действующим токеном сессии:
@@ -82,7 +86,7 @@ async def create_anonymous(
         await session.commit()
         return _session(settings, existing.user_id, token, existing), True
 
-    user = User(id=uuid.uuid4(), is_anonymous=True)
+    user = LegacyUser(id=uuid.uuid4(), is_anonymous=True)
     session.add(user)
     await session.flush()
     row = _new_row(settings, user.id, token, derive_uuid(settings, "anon-family", str(key)))
@@ -93,8 +97,8 @@ async def create_anonymous(
 
 async def _revoke_family(session: AsyncSession, family_id: uuid.UUID) -> None:
     await session.execute(
-        update(RefreshToken)
-        .where(RefreshToken.family_id == family_id, RefreshToken.revoked_at.is_(None))
+        update(LegacyRefreshToken)
+        .where(LegacyRefreshToken.family_id == family_id, LegacyRefreshToken.revoked_at.is_(None))
         .values(revoked_at=utcnow())
     )
     await session.commit()
@@ -103,7 +107,9 @@ async def _revoke_family(session: AsyncSession, family_id: uuid.UUID) -> None:
 async def refresh(session: AsyncSession, settings: Settings, token: str) -> AuthSession:
     now = utcnow()
     row = await session.scalar(
-        select(RefreshToken).where(RefreshToken.token_hash == hash_refresh_token(token)).with_for_update()
+        select(LegacyRefreshToken)
+        .where(LegacyRefreshToken.token_hash == hash_refresh_token(token))
+        .with_for_update()
     )
     if row is None or row.revoked_at is not None:
         await session.rollback()
@@ -117,7 +123,9 @@ async def refresh(session: AsyncSession, settings: Settings, token: str) -> Auth
     if row.rotated_at is not None:
         if now - row.rotated_at <= timedelta(seconds=settings.refresh_grace_seconds):
             child = await session.scalar(
-                select(RefreshToken).where(RefreshToken.token_hash == hash_refresh_token(child_token))
+                select(LegacyRefreshToken).where(
+                    LegacyRefreshToken.token_hash == hash_refresh_token(child_token)
+                )
             )
             if child is not None and child.revoked_at is None and child.rotated_at is None:
                 await session.commit()
@@ -129,6 +137,6 @@ async def refresh(session: AsyncSession, settings: Settings, token: str) -> Auth
     row.rotated_at = now
     child = _new_row(settings, row.user_id, child_token, row.family_id)
     session.add(child)
-    await session.execute(update(User).where(User.id == row.user_id).values(last_seen_at=now))
+    await session.execute(update(LegacyUser).where(LegacyUser.id == row.user_id).values(last_seen_at=now))
     await session.commit()
     return _session(settings, row.user_id, child_token, child)
