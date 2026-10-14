@@ -6,8 +6,7 @@ from app.core.config import get_settings
 from app.core.handlers import install_handlers
 from app.core.logging import setup_logging
 from app.core.openapi import install_openapi
-from app.core.secrets import load_lockbox_into_env
-from app.db.session import dispose_engine, init_engine
+from app.db.session import dispose_engine, init_engine, ping
 from app.modules.account.router import router as account_router
 from app.modules.auth.router import router as auth_router
 from app.modules.imports.router import router as imports_router
@@ -15,7 +14,6 @@ from app.modules.imports.router import router as imports_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    load_lockbox_into_env()
     get_settings.cache_clear()
     settings = get_settings()
     setup_logging(settings.log_level)
@@ -52,6 +50,8 @@ def create_app() -> FastAPI:
 
     @app.get("/healthz", include_in_schema=False)
     async def healthz():
+        """Контракт E0: 200 {status: ok}, если БД отвечает; иначе 503 service_unavailable + Retry-After."""
+        await ping(get_settings().db_health_timeout_s)
         return {"status": "ok"}
 
     return app

@@ -8,7 +8,9 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.base import BaseHTTPMiddleware
 
+from app.core.config import get_settings
 from app.core.errors import ERROR_CATALOG, ApiError, error_body
+from app.db.session import DB_ERROR_CLASSES, DatabaseUnavailable, is_unavailable
 
 log = logging.getLogger("app.http")
 
@@ -131,6 +133,27 @@ def install_handlers(app: FastAPI) -> None:
             exc.status_code, "invalid_request"
         )
         return _json_error(request, code)
+
+    async def _db_unavailable(request: Request, exc: Exception):
+        # Текст исключения не логируется и не отдаётся: в нём могут быть адрес, имя БД и параметры.
+        reason = exc.reason if isinstance(exc, DatabaseUnavailable) else type(exc).__name__
+        log.warning("db_unavailable", extra={"request_id": _request_id(request), "reason": reason})
+        retry_after = str(get_settings().db_unavailable_retry_after_s)
+        return _json_error(request, "service_unavailable", headers={"Retry-After": retry_after})
+
+    async def _db_error(request: Request, exc: Exception):
+        if is_unavailable(exc):
+            return await _db_unavailable(request, exc)
+        log.error(
+            "unhandled_error", extra={"request_id": _request_id(request), "exc_type": type(exc).__name__}
+        )
+        return _json_error(request, "internal_error")
+
+    # Конкретные классы, а не Exception: их обрабатывает ExceptionMiddleware внутри приложения,
+    # до RequestContextMiddleware, который превратил бы любую ошибку в 500.
+    app.add_exception_handler(DatabaseUnavailable, _db_unavailable)
+    for cls in DB_ERROR_CLASSES:
+        app.add_exception_handler(cls, _db_error)
 
     @app.exception_handler(Exception)
     async def _unhandled(request: Request, exc: Exception):

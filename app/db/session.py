@@ -1,6 +1,10 @@
+import asyncio
 import ssl
 from collections.abc import AsyncIterator
 
+import asyncpg
+from sqlalchemy import exc as sa_exc
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 
 from app.core.config import Settings, get_settings
@@ -51,3 +55,48 @@ def sessionmaker() -> async_sessionmaker[AsyncSession]:
 async def get_session() -> AsyncIterator[AsyncSession]:
     async with sessionmaker()() as session:
         yield session
+
+
+class DatabaseUnavailable(Exception):
+    """БД недоступна: в ответе — 503 service_unavailable + Retry-After (контракт E0). reason — только тип."""
+
+    def __init__(self, reason: str):
+        super().__init__(reason)
+        self.reason = reason
+
+
+# Ошибки соединения, а не запроса: отказ подключения, разрыв, таймаут пула, перегрузка сервера БД.
+_UNAVAILABLE_ORIG = (
+    OSError,
+    TimeoutError,
+    asyncpg.exceptions.PostgresConnectionError,
+    asyncpg.exceptions.CannotConnectNowError,
+    asyncpg.exceptions.TooManyConnectionsError,
+    asyncpg.exceptions.ConnectionDoesNotExistError,
+)
+
+
+# Классы, на которые вешается обработчик: внутри него is_unavailable отличает недоступность от ошибки запроса.
+DB_ERROR_CLASSES = (sa_exc.DBAPIError, sa_exc.TimeoutError, *_UNAVAILABLE_ORIG)
+
+
+def is_unavailable(exc: BaseException) -> bool:
+    if isinstance(exc, (DatabaseUnavailable, sa_exc.TimeoutError, *_UNAVAILABLE_ORIG)):
+        return True
+    if isinstance(exc, sa_exc.DBAPIError):
+        return (
+            exc.connection_invalidated
+            or isinstance(exc.orig, _UNAVAILABLE_ORIG)
+            or (isinstance(exc.orig, Exception) and isinstance(exc.orig.__cause__, _UNAVAILABLE_ORIG))
+        )
+    return False
+
+
+async def ping(limit_s: float) -> None:
+    """Готовность БД для /healthz: SELECT 1 через пул за limit_s секунд."""
+    try:
+        async with asyncio.timeout(limit_s):
+            async with init_engine().connect() as conn:
+                await conn.execute(text("SELECT 1"))
+    except Exception as e:
+        raise DatabaseUnavailable(type(e).__name__) from None
