@@ -4,11 +4,13 @@
 #
 #   deploy/portable/drill.sh
 #
-# Сценарий повторяет docs/disaster-recovery.md §2–§3 командами Compose:
-#   первый сервер → данные через API → схема откатывается на предыдущую ревизию (копия «старой версии») →
-#   зашифрованная копия → сервер уничтожается вместе с томами →
+# Часть 1 повторяет docs/disaster-recovery.md §2–§3 командами Compose:
+#   первый сервер → гостевая сессия через API → схема откатывается на предыдущую ревизию (копия «старой
+#   версии», как на стенде до E1) → зашифрованная копия → сервер уничтожается вместе с томами →
 #   новый сервер: только пустая БД (install.sh --prepare) → backup restore → миграции и приложение
-#   (install.sh без --prepare) → проверка данных, ревизии схемы и старой сессии.
+#   (install.sh без --prepare) → проверка данных старой схемы, ревизии и старой сессии.
+# Часть 2 (временно, до E2/E6): синтетические строки в таблицах MVP → копия → восстановление в отдельную
+#   БД → совпадение числа строк и md5 содержимого. Через API эти таблицы пишутся только с E2/E6.
 # Пароль БД намеренно содержит символы, которые ломают URL при простой подстановке.
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -65,23 +67,29 @@ tick "build and start the first server"
 dc up -d --build --wait db migrate api >/dev/null
 ./smoke.sh "$base" >/dev/null
 
-tick "write synthetic data through the API"
 json() { python3 -c "import json,sys; print(json.load(sys.stdin)$1)"; }
+sql() { dc exec -T db psql -U money -d "${2:-money}" -v ON_ERROR_STOP=1 -At -c "$1" </dev/null; }
+# Отпечаток содержимого таблиц: число строк и md5 строк в стабильном порядке.
+fingerprint() {
+	local db=$1 out="" t
+	shift
+	for t in "$@"; do
+		out+="$t=$(sql "select count(*)||':'||coalesce(md5(string_agg(x::text, '|' order by x::text)), '-') from $t x" "$db") "
+	done
+	echo "$out"
+}
+
+# ---- Часть 1. Документированный сценарий (docs/disaster-recovery.md §2–§3) со сквозной сессией API ----
+tick "part 1: guest session through the API (old /v1/auth/anonymous until E2)"
 session=$(curl -sS --fail-with-body -X POST "$base/v1/auth/anonymous" -H 'Content-Type: application/json' \
 	-H "Idempotency-Key: $(uuid)" -d '{"platform":"ios","appVersion":"drill"}')
-access=$(json '["accessToken"]' <<<"$session")
 refresh=$(json '["refreshToken"]' <<<"$session")
-auth=(-H "Authorization: Bearer $access" -H 'X-Timezone: Europe/Moscow' -H 'Content-Type: application/json')
-for i in 1 2 3; do
-	curl -sS --fail-with-body -o /dev/null -X POST "$base/v1/expenses" "${auth[@]}" -H "Idempotency-Key: $(uuid)" \
-		-d "{\"date\":\"2026-09-0$i\",\"amount\":\"10$i.50\",\"categoryId\":\"00000000-0000-4000-8000-000000000001\",\"comment\":\"drill $i\"}"
-done
-before=$(curl -sS --fail-with-body "$base/v1/expenses?from=2026-09-01&to=2026-09-30" "${auth[@]}" | json '["items"]' | sort)
+legacy_before=$(fingerprint money legacy_users legacy_refresh_tokens categories)
 
-sql() { dc exec -T db psql -U money -d money -At -c "$1" </dev/null; }
 head_rev=$(sql "select version_num from alembic_version")
-old_rev=0002_system_categories
-tick "roll the schema back to $old_rev (backup of an older schema version)"
+old_rev=$(dc run --rm -T --entrypoint python migrate -m alembic show head 2>/dev/null | sed -n 's/^Parent: //p')
+[ -n "$old_rev" ] || { echo "drill: previous revision not found"; exit 1; }
+tick "roll the schema back to $old_rev (backup of the schema before $head_rev, as on the old test stand)"
 dc stop api >/dev/null
 dc run --rm -T --entrypoint python migrate -m alembic downgrade "$old_rev" >/dev/null
 [ "$(sql "select version_num from alembic_version")" = "$old_rev" ] || { echo "drill: downgrade failed"; exit 1; }
@@ -112,13 +120,43 @@ dc up -d --wait migrate api >/dev/null
 [ "$(sql "select version_num from alembic_version")" = "$head_rev" ] || { echo "drill: migrations did not reach head"; exit 1; }
 tick "restore finished in $(( $(date +%s) - t_restore ))s"
 
-tick "verify data and the pre-disaster session"
-refreshed=$(curl -sS --fail-with-body -X POST "$base/v1/auth/refresh" -H 'Content-Type: application/json' \
-	-d "{\"refreshToken\":\"$refresh\"}")
-access=$(json '["accessToken"]' <<<"$refreshed")
-auth=(-H "Authorization: Bearer $access" -H 'X-Timezone: Europe/Moscow')
-after=$(curl -sS --fail-with-body "$base/v1/expenses?from=2026-09-01&to=2026-09-30" "${auth[@]}" | json '["items"]' | sort)
-[ "$before" = "$after" ] || { echo "drill: FAILED, expenses differ"; echo "$before"; echo "$after"; exit 1; }
+tick "verify: old-schema data survived the migration, the pre-disaster session still works"
+[ "$(fingerprint money legacy_users legacy_refresh_tokens categories)" = "$legacy_before" ] ||
+	{ echo "drill: FAILED, legacy data differs after restore and migration"; exit 1; }
+curl -sS --fail-with-body -o /dev/null -X POST "$base/v1/auth/refresh" -H 'Content-Type: application/json' \
+	-d "{\"refreshToken\":\"$refresh\"}"
 ./smoke.sh "$base" >/dev/null
 
-tick "drill passed: data and the guest session survived a full server loss; $old_rev backup migrated to $head_rev"
+# ---- Часть 2. Таблицы схемы MVP — на уровне БД ----
+# Временный предел E1: таблицы MVP ещё не пишутся через API. Сквозная проверка возвращается этапами:
+# устройства и refresh-токены через /v1/auth/guest — E2, данные синхронизации через /v1/sync/* — E6.
+tick "part 2 (DB level until E2/E6): synthetic rows in the MVP tables"
+u=$(uuid); d=$(uuid)
+sql "
+insert into users (user_id) values ('$u');
+insert into devices (device_id, platform, app_version, account_id) values ('$d', 'ios', 'drill', '$u');
+insert into refresh_tokens (token_hash, family_id, subject_kind, device_id, user_id, expires_at)
+  values (repeat('a', 64), '$(uuid)', 'account', '$d', '$u', now() + interval '365 days');
+insert into identities (provider, subject, user_id) values ('apple', 'drill.$u', '$u');
+insert into sync_state (user_id, last_version) values ('$u', 3);
+insert into sync_records (user_id, entity_type, entity_id, version, created_at, updated_at, order_ts, device_id,
+  schema_version, mutation_id, payload)
+  select '$u', t, gen_random_uuid(), v, now(), now(), now(), '$d', 1, gen_random_uuid(),
+         jsonb_build_object('comment', 'drill ' || v, 'amountMinor', '10' || v || '50')
+  from (values ('category', 1), ('expense', 2), ('day_mark', 3)) x(t, v);
+insert into usage_counters (subject, feature, used) values ('device:$d', 'imports', 2);
+insert into import_ledger (import_id, device_id, account_id, confirmed_at) values ('$(uuid)', '$d', '$u', now());
+" >/dev/null
+mvp_tables=(users devices refresh_tokens identities sync_state sync_records usage_counters import_ledger)
+mvp_before=$(fingerprint money "${mvp_tables[@]}")
+dc run --rm -T backup once >/dev/null
+sql "drop database if exists restore_check" postgres >/dev/null
+sql "create database restore_check" postgres >/dev/null
+dc run --rm -T -e PGDATABASE=restore_check backup restore latest
+[ "$(fingerprint restore_check "${mvp_tables[@]}")" = "$mvp_before" ] ||
+	{ echo "drill: FAILED, MVP tables differ after restore"; exit 1; }
+[ "$(sql "select version_num from alembic_version" restore_check)" = "$head_rev" ] ||
+	{ echo "drill: restored revision mismatch (part 2)"; exit 1; }
+sql "drop database restore_check" postgres >/dev/null
+
+tick "drill passed: $old_rev backup -> empty db -> restore -> migrations to $head_rev, session survived; MVP tables restored identically (DB level)"

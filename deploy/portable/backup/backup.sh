@@ -39,15 +39,19 @@ fence() {
 remote_dir() { echo "${BACKUP_REMOTE:?BACKUP_REMOTE is required}/$INSTANCE_NAME"; }
 
 counts() {
+	# Число строк во всех таблицах схемы public по имени (ключи отсортированы) и ревизия Alembic.
+	# Не зависит от версии схемы: копию со старой схемой можно восстановить и сверить так же.
 	psql -X -At -v ON_ERROR_STOP=1 -c "
 		select json_build_object(
 			'alembic', (select version_num from alembic_version),
-			'users', (select count(*) from users),
-			'refresh_tokens', (select count(*) from refresh_tokens),
-			'categories', (select count(*) from categories),
-			'expenses', (select count(*) from expenses),
-			'free_days', (select count(*) from free_days),
-			'expense_imports', (select count(*) from expense_imports))"
+			'tables', (
+				select json_object_agg(table_name, rows order by table_name)
+				from (
+					select table_name, (xpath('/row/c/text()', query_to_xml(
+						format('select count(*) as c from public.%I', table_name), false, true, '')))[1]::text::bigint as rows
+					from information_schema.tables
+					where table_schema = 'public' and table_type = 'BASE TABLE' and table_name <> 'alembic_version'
+				) t))"
 }
 
 once() {
