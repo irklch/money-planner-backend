@@ -1,4 +1,9 @@
-"""ORM-модели строго по странице «11 — Database Schema» (Backend · PostgreSQL)."""
+"""Старая схема (страница «11 — Database Schema»): модули до local-first.
+
+С миграции 0004 (E1) таблицы старой схемы `users` и `refresh_tokens` называются `legacy_users` и
+`legacy_refresh_tokens`: их имена заняла схема MVP (`app/db/schema.py`). Ими пользуются только старые
+`/v1/auth/*`, `DELETE /v1/me` и `/v1/imports/parse` до замены в E2–E7; таблицы удаляются в E11.
+"""
 
 import enum
 import uuid
@@ -34,8 +39,8 @@ class ExpenseSource(enum.StrEnum):
     import_ = "import"
 
 
-class User(Base):
-    __tablename__ = "users"
+class LegacyUser(Base):
+    __tablename__ = "legacy_users"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     is_anonymous: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
@@ -47,12 +52,12 @@ class User(Base):
     )
 
 
-class RefreshToken(Base):
-    __tablename__ = "refresh_tokens"
+class LegacyRefreshToken(Base):
+    __tablename__ = "legacy_refresh_tokens"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+        UUID(as_uuid=True), ForeignKey("legacy_users.id", ondelete="CASCADE"), nullable=False, index=True
     )
     token_hash: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
     family_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
@@ -75,7 +80,7 @@ class Category(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE")
+        UUID(as_uuid=True), ForeignKey("legacy_users.id", ondelete="CASCADE")
     )
     name: Mapped[str] = mapped_column(String(24), nullable=False)
     emoji: Mapped[str] = mapped_column(String(32), nullable=False)
@@ -104,7 +109,7 @@ class Expense(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+        UUID(as_uuid=True), ForeignKey("legacy_users.id", ondelete="CASCADE"), nullable=False
     )
     category_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("categories.id"), nullable=False
@@ -130,7 +135,7 @@ class FreeDay(Base):
     __tablename__ = "free_days"
 
     user_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+        UUID(as_uuid=True), ForeignKey("legacy_users.id", ondelete="CASCADE"), primary_key=True
     )
     date: Mapped[date] = mapped_column(Date, primary_key=True)
     created_at: Mapped[datetime] = mapped_column(
@@ -155,7 +160,7 @@ class ExpenseImport(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
     user_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+        UUID(as_uuid=True), ForeignKey("legacy_users.id", ondelete="CASCADE"), nullable=False, index=True
     )
     request_hash: Mapped[bytes] = mapped_column(LargeBinary(32), nullable=False)
     imported_count: Mapped[int] = mapped_column(Integer, nullable=False)

@@ -1,12 +1,12 @@
 import uuid
 from datetime import timedelta
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 
 from app.core.security import hash_refresh_token, utcnow
-from app.db.models import RefreshToken
+from app.db.models import Category, LegacyRefreshToken
 from app.db.session import sessionmaker
-from tests.conftest import auth, new_guest
+from tests.conftest import auth
 
 
 async def test_anonymous_idempotent_same_guest(client):
@@ -29,9 +29,10 @@ async def test_anonymous_requires_idempotency_key(client):
 
 
 async def test_access_token_required_and_invalid(client):
-    r = await client.get("/v1/categories")
+    # Защищённый маршрут, оставшийся в E1: DELETE /v1/me (без валидного токена ничего не удаляется).
+    r = await client.delete("/v1/me")
     assert r.status_code == 401 and r.json()["error"]["code"] == "access_token_invalid"
-    r = await client.get("/v1/categories", headers={"Authorization": "Bearer garbage"})
+    r = await client.delete("/v1/me", headers={"Authorization": "Bearer garbage"})
     assert r.json()["error"]["code"] == "access_token_invalid"
     assert r.headers["X-Request-Id"] == r.json()["error"]["requestId"]
 
@@ -43,8 +44,10 @@ async def test_user_id_alone_gives_no_access(client, guest):
     forged = jwt.encode(
         {"sub": guest["userId"], "typ": "access", "iat": 0, "exp": 9999999999}, "wrong", "HS256"
     )
-    r = await client.get("/v1/categories", headers={"Authorization": f"Bearer {forged}"})
+    r = await client.delete("/v1/me", headers={"Authorization": f"Bearer {forged}"})
     assert r.status_code == 401
+    r = await client.post("/v1/auth/refresh", json={"refreshToken": guest["refreshToken"]})
+    assert r.status_code == 200  # гость не удалён поддельным токеном
 
 
 async def test_refresh_rotation_grace_and_reuse(client, guest):
@@ -61,8 +64,8 @@ async def test_refresh_rotation_grace_and_reuse(client, guest):
     # Вне grace-окна повтор старого токена = reuse → отзыв всей цепочки.
     async with sessionmaker()() as s:
         await s.execute(
-            update(RefreshToken)
-            .where(RefreshToken.token_hash == hash_refresh_token(old))
+            update(LegacyRefreshToken)
+            .where(LegacyRefreshToken.token_hash == hash_refresh_token(old))
             .values(rotated_at=utcnow() - timedelta(minutes=5))
         )
         await s.commit()
@@ -75,8 +78,8 @@ async def test_refresh_rotation_grace_and_reuse(client, guest):
 async def test_refresh_expired(client, guest):
     async with sessionmaker()() as s:
         await s.execute(
-            update(RefreshToken)
-            .where(RefreshToken.token_hash == hash_refresh_token(guest["refreshToken"]))
+            update(LegacyRefreshToken)
+            .where(LegacyRefreshToken.token_hash == hash_refresh_token(guest["refreshToken"]))
             .values(expires_at=utcnow() - timedelta(seconds=1))
         )
         await s.commit()
@@ -91,7 +94,7 @@ async def test_refresh_unknown_token(client):
 
 async def test_refresh_token_stored_only_as_hash(client, guest):
     async with sessionmaker()() as s:
-        hashes = (await s.scalars(select(RefreshToken.token_hash))).all()
+        hashes = (await s.scalars(select(LegacyRefreshToken.token_hash))).all()
     assert guest["refreshToken"] not in hashes
     assert hash_refresh_token(guest["refreshToken"]) in hashes
 
@@ -104,6 +107,8 @@ async def test_delete_me_removes_everything_and_is_idempotent(client, guest):
     assert r.status_code == 401 and r.json()["error"]["code"] == "user_deleted"
     r = await client.post("/v1/auth/refresh", json={"refreshToken": guest["refreshToken"]})
     assert r.status_code == 401
-    other = await new_guest(client)
-    r = await client.get("/v1/categories", headers=auth(other))
-    assert any(c["name"] == "Другое" for c in r.json()["items"])  # системные категории на месте
+    # Системные категории на месте (CRUD категорий отключён в E1 — проверяем по БД).
+    async with sessionmaker()() as s:
+        names = set(await s.scalars(select(Category.name).where(Category.user_id.is_(None))))
+        assert "Другое" in names
+        assert await s.scalar(select(func.count()).select_from(Category)) == len(names)

@@ -5,7 +5,6 @@
 - Ограниченные таймауты; ошибки провайдера → LLMError.
 """
 
-import asyncio
 import logging
 import time
 
@@ -13,7 +12,6 @@ import httpx
 
 from app.ai.client import LLMError, LLMMessage, LLMTask
 from app.core.config import Settings
-from app.core.secrets import fetch_metadata_iam_token
 
 log = logging.getLogger("app.ai")
 
@@ -33,18 +31,11 @@ class YandexLLMClient:
             base_url=settings.ai_base_url,
             timeout=httpx.Timeout(settings.ai_timeout_seconds, connect=5.0),
         )
-        self._iam_token: str | None = None
-        self._iam_expires = 0.0
 
     async def _auth_header(self) -> str:
-        if self._s.ai_api_key is not None:
-            return f"Api-Key {self._s.ai_api_key.get_secret_value()}"
-        if self._s.ai_use_metadata_iam:
-            if self._iam_token is None or time.monotonic() > self._iam_expires:
-                self._iam_token = await asyncio.to_thread(fetch_metadata_iam_token)
-                self._iam_expires = time.monotonic() + 3600
-            return f"Bearer {self._iam_token}"
-        raise LLMError("No AI credentials")
+        if self._s.ai_api_key is None:
+            raise LLMError("No AI credentials")
+        return f"Api-Key {self._s.ai_api_key.get_secret_value()}"
 
     async def complete(
         self, task: LLMTask, messages: list[LLMMessage], *, temperature: float = 0.1, max_tokens: int = 2000

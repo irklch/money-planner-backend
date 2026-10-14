@@ -4,10 +4,11 @@ info:
   version: 1.0.0
   summary: Публичный контракт MVP (local-first) для iOS и будущего Android.
   description: |
-    Контракт этапа E0 плана миграции (`docs/production-migration-plan.md`, ред. 5.1).
+    Контракт этапа E0 плана миграции (`docs/production-migration-plan.md`; схемы не менялись
+    с ред. 5.1, описания приведены к ред. 6 — D24: ВМ, Docker Compose, PostgreSQL).
     Правила совместимости, идемпотентности, повторов, лимитов и формата ошибок —
-    `docs/api-contract.md`. Внутренние эндпоинты `/internal/*` описаны отдельно
-    (`contract/openapi-internal.yaml`) и в API Gateway не публикуются.
+    `docs/api-contract.md`. Внутренние задачи (`contract/openapi-internal.yaml`) снаружи
+    недоступны.
 
     Общие соглашения:
     - все пути API — под префиксом `/v1` (версия — в пути); `/healthz` — вне версии;
@@ -21,7 +22,7 @@ info:
     name: Money Planner backend
 servers:
   - url: '{origin}'
-    description: Origin API Gateway (staging / prod создаются в E9).
+    description: Origin API — домен production-сервера (Caddy, TLS; создаётся в E9) или тестового стенда.
     variables:
       origin:
         default: http://localhost:8000
@@ -42,6 +43,8 @@ tags:
 x-contract:
   planRevision: '5.1'
   stage: E0
+  # Эндпоинты с x-stage не позже этого этапа реализованы приложением (contract/tests/test_contract_implementation.py).
+  implementedThrough: E1
   dayMarkNamespace: 97a5414e-31da-4b51-85c7-7ea3eab0c81d
   systemCategoryRegistry: contract/system-categories.json
   systemCategoryRegistryStatus: approved
@@ -84,7 +87,7 @@ x-error-catalog:
   unconfirmed_imports_limit: {status: 429, retryable: true, retryAfter: true, description: 'Неподтверждённых доставок за 24 ч больше IMPORT_UNCONFIRMED_MAX. Есть Retry-After.'}
   internal_error: {status: 500, retryable: true, description: 'Внутренняя ошибка.'}
   processing_failed: {status: 500, retryable: true, description: 'Сбой обработки выписки.'}
-  service_unavailable: {status: 503, retryable: true, retryAfter: true, description: 'Сервис временно недоступен (YDB, Apple, перегрузка экземпляра). Есть Retry-After.'}
+  service_unavailable: {status: 503, retryable: true, retryAfter: true, description: 'Сервис временно недоступен (БД, Apple, перегрузка экземпляра). Есть Retry-After.'}
   processing_timeout: {status: 503, retryable: true, retryAfter: true, description: 'Разбор не уложился в IMPORT_PARSE_TIMEOUT_S. Есть Retry-After.'}
 
 paths:
@@ -218,7 +221,7 @@ paths:
       description: |
         Вызывается с **гостевым** токеном устройства. Сервер проверяет `identityToken` по JWKS
         Apple (`iss`, `aud` = bundle id, `exp`, хэш `nonce`), сразу обменивает
-        `authorizationCode` на Apple refresh token (шифрование KMS), находит или создаёт
+        `authorizationCode` на Apple refresh token (шифрование ключом приложения), находит или создаёт
         аккаунт по `(apple, sub)`, связывает устройство и атрибутирует гостевые импорты
         устройства (однократно, §6.1). Если пришёл новый `authorizationCode` для существующего
         аккаунта, сохранённый Apple refresh token заменяется.
@@ -904,7 +907,7 @@ components:
         application/json:
           schema: {$ref: '#/components/schemas/ErrorEnvelope'}
     ServiceUnavailable:
-      description: Временно недоступно (YDB, внешние сервисы, троттлинг RU).
+      description: Временно недоступно (БД, внешние сервисы, перегрузка экземпляра).
       x-error-codes: [service_unavailable]
       headers:
         X-Request-Id: {$ref: '#/components/headers/XRequestId'}

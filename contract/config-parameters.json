@@ -1,9 +1,9 @@
 {
-  "description": "Параметры конфигурации (план §6.3, §5, §2) и фиксированные константы протокола. 'env' — переменные окружения ревизии контейнера (не секреты), меняются без релиза; 'protocol' — часть контракта, меняются только новой версией контракта.",
+  "description": "Параметры конфигурации (план §6.3, §5, §2) и фиксированные константы протокола. 'env' — переменные окружения сервера (не секреты, deploy/portable/.env), меняются без релиза; 'protocol' — часть контракта, меняются только новой версией контракта.",
   "env": [
-    {"name": "IMPORT_MAX_FILE_BYTES", "default": 2097152, "unit": "bytes", "onExceed": {"status": 413, "code": "file_too_large"}, "note": "API Gateway: 2,5 МБ на запрос с заголовками"},
+    {"name": "IMPORT_MAX_FILE_BYTES", "default": 2097152, "unit": "bytes", "onExceed": {"status": 413, "code": "file_too_large"}, "note": "тело запроса дополнительно ограничивает Caddy (deploy/Caddyfile)"},
     {"name": "IMPORT_MAX_OPERATIONS", "default": 5000, "unit": "operations", "onExceed": {"status": 422, "code": "statement_too_large"}},
-    {"name": "IMPORT_PARSE_TIMEOUT_S", "default": 30, "unit": "seconds", "onExceed": {"status": 503, "code": "processing_timeout", "retryAfter": true}, "note": "таймаут ревизии контейнера — 60 с"},
+    {"name": "IMPORT_PARSE_TIMEOUT_S", "default": 30, "unit": "seconds", "onExceed": {"status": 503, "code": "processing_timeout", "retryAfter": true}, "note": "время обработки одного разбора на сервере"},
     {"name": "IMPORT_RATE_PER_MINUTE", "default": 5, "unit": "requests/device/minute", "onExceed": {"status": 429, "code": "rate_limited", "retryAfter": true}},
     {"name": "IMPORT_RATE_PER_DAY", "default": 10, "unit": "requests/device/day", "onExceed": {"status": 429, "code": "rate_limited", "retryAfter": true}},
     {"name": "IMPORT_CONCURRENCY_PER_DEVICE", "default": 1, "unit": "parallel parses", "onExceed": {"status": 429, "code": "rate_limited", "retryAfter": true}},

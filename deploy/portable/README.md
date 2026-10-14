@@ -52,7 +52,7 @@ git clone https://github.com/irklch/money-planner-backend.git /opt/money-planner
 cd /opt/money-planner/deploy/portable
 cp env.example .env && chmod 600 .env && nano .env
 sudo ./install.sh
-./smoke.sh                                   # healthz, запись и чтение БД
+./smoke.sh                                   # healthz (готовность БД), гостевая сессия, refresh, отключённые маршруты
 ./smoke.sh "https://$API_DOMAIN"             # после выпуска сертификата
 docker compose run --rm backup once          # первая копия и проверка доступа к бакету
 docker compose run --rm backup list
@@ -87,6 +87,8 @@ echo "/swapfile none swap sw 0 0" | sudo tee -a /etc/fstab
 echo "vm.swappiness=10" | sudo tee /etc/sysctl.d/99-money-planner-swap.conf && sudo sysctl -p /etc/sysctl.d/99-money-planner-swap.conf
 ```
 
+> **Замеры ниже сделаны 13.10.2026 до E1** (сохранение импорта через `/v1/expenses/import` и аналитика тогда работали на сервере). С E1 `loadtest.py` измеряет разбор выписок и `/healthz`; после обновления стенда замер нужно повторить.
+
 Повтор замеров: `scripts/make_synthetic_statement.py 40 big.xlsx` (≈ 4 800 расходов, 267 КБ), затем на сервере `python3 deploy/portable/loadtest.py tests/fixtures/banks/alfa/alfa_statement_test.xlsx big.xlsx`.
 
 | Сценарий | Время ответа | Пик памяти хоста¹ | api / db, пик | CPU хоста | Swap | Ошибки |
@@ -107,6 +109,21 @@ echo "vm.swappiness=10" | sudo tee /etc/sysctl.d/99-money-planner-swap.conf && s
 **Вывод:** для MVP хватает с большим запасом: проверенная нагрузка — 8 одновременных импортов по 4 800 операций и ≈ 160 запросов/с. Память используется меньше чем на треть, swap не понадобился. Узкое место при всплеске импортов — CPU одного процесса uvicorn, а при сборке — диск, не память.
 
 **Рекомендуемые параметры:** один процесс uvicorn (rate limit и семафор разбора хранятся в памяти процесса — с несколькими процессами лимиты умножаются); `PARSE_CONCURRENCY_GLOBAL=4` (по умолчанию) — достаточно для 1 ядра, при 2 ГБ без swap не повышать; `PARSE_CONCURRENCY_PER_USER=1`; `DB_POOL_SIZE=10`, `DB_MAX_OVERFLOW=5` — пик 8 одновременных сохранений укладывается.
+
+### Обновление стенда после E1
+
+Схема MVP приходит миграцией `0004_mvp_schema`; сброс БД не нужен. Сервис `migrate` применит её при запуске:
+
+```bash
+cd /opt/money-planner && git pull                     # ветка main после слияния E1
+cd deploy/portable
+docker compose run --rm backup once                   # копия до миграции (тестовый ключ стенда)
+sudo ./install.sh --test                              # сборка образов, migrate 0003 → 0004, перезапуск
+docker compose exec -T db psql -U money -d money -Atc "select version_num from alembic_version"   # 0004_mvp_schema
+./smoke.sh
+```
+
+Старые данные стенда сохраняются в `legacy_users`, `legacy_refresh_tokens` и старых таблицах. Откат: `docker compose run --rm --entrypoint python migrate -m alembic downgrade 0003_expense_imports_result`, затем код предыдущей версии.
 
 ## Резервные копии
 
@@ -135,7 +152,10 @@ sudo ./install.sh                    # migrate догоняет схему до 
 
 ### Учения
 
-`./drill.sh` — полный цикл в изолированном compose-проекте на синтетических данных по шагам аварийного плана: сервер → данные через API → откат схемы на предыдущую ревизию → зашифрованная копия → уничтожение сервера с томами → только пустая БД → восстановление → миграции до текущей ревизии и приложение → проверка расходов, ревизии и старой сессии. Пароль БД в учениях содержит `/ + = @ : % ? & ~`. Запускается в CI (job `portable-deploy`) и вручную на любой машине с Docker.
+`./drill.sh` — учения в изолированном compose-проекте на синтетических данных. Запускается в CI (job `portable-deploy`) и вручную на любой машине с Docker. Пароль БД в учениях содержит `/ + = @ : % ? & ~`.
+
+1. **По шагам аварийного плана, со сквозной сессией API:** сервер → гостевая сессия через API → откат схемы на предыдущую ревизию (копия «старой версии», как на стенде до E1) → зашифрованная копия → уничтожение сервера с томами → только пустая БД → восстановление → миграции до текущей ревизии и приложение → данные старой схемы совпадают, сессия до аварии работает, `smoke.sh` проходит.
+2. **Таблицы схемы MVP — временно на уровне БД (предел E1):** синтетические строки → копия → восстановление в отдельную БД → совпадение числа строк и md5 содержимого. Через API эти таблицы начнут писаться в E2 (`/v1/auth/guest`) и E6 (`/v1/sync/*`); тогда проверка станет сквозной.
 
 ## Один пишущий сервер
 

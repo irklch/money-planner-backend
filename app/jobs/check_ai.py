@@ -8,11 +8,9 @@ import sys
 
 from app.ai.yandex import YandexLLMClient
 from app.core.config import get_settings
-from app.core.secrets import load_lockbox_into_env
 
 
 async def main() -> int:
-    load_lockbox_into_env()
     get_settings.cache_clear()
     client = YandexLLMClient(get_settings())
     await client.verify()

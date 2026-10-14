@@ -12,9 +12,8 @@ from sqlalchemy import delete
 
 from app.core.config import get_settings
 from app.core.logging import setup_logging
-from app.core.secrets import load_lockbox_into_env
 from app.core.security import utcnow
-from app.db.models import User
+from app.db.models import LegacyUser
 from app.db.session import dispose_engine, init_engine, sessionmaker
 
 INACTIVITY = timedelta(days=365)
@@ -23,13 +22,14 @@ log = logging.getLogger("app.jobs")
 
 async def purge() -> int:
     async with sessionmaker()() as session:
-        result = await session.execute(delete(User).where(User.last_seen_at < utcnow() - INACTIVITY))
+        result = await session.execute(
+            delete(LegacyUser).where(LegacyUser.last_seen_at < utcnow() - INACTIVITY)
+        )
         await session.commit()
         return result.rowcount or 0
 
 
 async def main() -> None:
-    load_lockbox_into_env()
     get_settings.cache_clear()
     setup_logging(get_settings().log_level)
     init_engine()

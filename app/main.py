@@ -6,21 +6,14 @@ from app.core.config import get_settings
 from app.core.handlers import install_handlers
 from app.core.logging import setup_logging
 from app.core.openapi import install_openapi
-from app.core.secrets import load_lockbox_into_env
-from app.db.session import dispose_engine, init_engine
+from app.db.session import dispose_engine, init_engine, ping
 from app.modules.account.router import router as account_router
-from app.modules.analytics.router import router as analytics_router
 from app.modules.auth.router import router as auth_router
-from app.modules.calendar.router import router as calendar_router
-from app.modules.categories.router import router as categories_router
-from app.modules.expenses.router import router as expenses_router
 from app.modules.imports.router import router as imports_router
-from app.modules.insights.router import router as insights_router
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    load_lockbox_into_env()
     get_settings.cache_clear()
     settings = get_settings()
     setup_logging(settings.log_level)
@@ -48,22 +41,17 @@ def create_app() -> FastAPI:
     install_handlers(app)
     install_openapi(app)
 
+    # E1 (план §11.2): expenses, categories CRUD, calendar, analytics, insights уходят на iOS или вне MVP
+    # и отключены из приложения. Код модулей удаляется в E11; auth, account, imports заменяются в E2–E7.
     v1 = APIRouter(prefix="/v1")
-    for r in (
-        auth_router,
-        account_router,
-        categories_router,
-        imports_router,
-        expenses_router,
-        calendar_router,
-        analytics_router,
-        insights_router,
-    ):
+    for r in (auth_router, account_router, imports_router):
         v1.include_router(r)
     app.include_router(v1)
 
     @app.get("/healthz", include_in_schema=False)
     async def healthz():
+        """Контракт E0: 200 {status: ok}, если БД отвечает; иначе 503 service_unavailable + Retry-After."""
+        await ping(get_settings().db_health_timeout_s)
         return {"status": "ok"}
 
     return app

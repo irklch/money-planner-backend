@@ -11,7 +11,7 @@ from app.core.config import Settings, get_settings
 from app.core.dates import TIMEZONE_HEADER, parse_timezone, today_in
 from app.core.errors import ApiError
 from app.core.security import decode_access_token
-from app.db.models import User
+from app.db.models import LegacyUser
 from app.db.session import get_session
 
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
@@ -29,7 +29,7 @@ async def get_current_user(request: Request, session: SessionDep, settings: Sett
     if scheme.lower() != "bearer" or not token:
         raise ApiError("access_token_invalid")
     user_id = decode_access_token(settings, token.strip())
-    exists = await session.scalar(select(User.id).where(User.id == user_id))
+    exists = await session.scalar(select(LegacyUser.id).where(LegacyUser.id == user_id))
     if exists is None:
         raise ApiError("user_deleted")
     return CurrentUser(id=user_id)

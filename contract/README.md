@@ -4,8 +4,8 @@
 
 | Файл | Назначение |
 |---|---|
-| `openapi.yaml` | публичный контракт OpenAPI 3.1 (публикуется в API Gateway) |
-| `openapi-internal.yaml` | `/internal/*`, только для таймер-триггеров, в шлюзе не публикуется |
+| `openapi.yaml` | публичный контракт OpenAPI 3.1 |
+| `openapi-internal.yaml` | фоновые задачи `/internal/*`; по D24 пересматриваются в E8 как команды `maintenance` |
 | `system-categories.json` | реестр `SYSTEM_CATEGORY_IDS` |
 | `config-parameters.json` | параметры конфигурации, константы протокола, повторы клиента |
 | `vectors/` | тест-векторы для iOS, Android и сервера |
