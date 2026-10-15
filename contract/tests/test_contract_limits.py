@@ -26,11 +26,14 @@ PLAN_DEFAULTS = {
     "AI_CATEGORIZATION_ENABLED": True,
     "AI_MAX_DESCRIPTIONS_PER_IMPORT": 500,
     "GUEST_CREATE_RATE_PER_IP": 10,
+    # Утверждён владельцем на ревью E2 (PR #9): лимит POST /v1/auth/refresh.
+    "AUTH_REFRESH_RATE_PER_IP": 30,
 }
 # Какой эндпоинт отвечает ошибкой превышения параметра.
 OPERATION_OF = {
     "IMPORT_": ("post", "/v1/imports/parse"),
     "GUEST_CREATE": ("post", "/v1/auth/guest"),
+    "AUTH_REFRESH": ("post", "/v1/auth/refresh"),
     "SYNC_PUSH": ("post", "/v1/sync/push"),
 }
 

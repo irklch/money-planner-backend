@@ -3,6 +3,7 @@ import os
 import subprocess
 import sys
 import uuid
+from datetime import UTC, datetime, timedelta
 
 import asyncpg
 import pytest
@@ -14,6 +15,7 @@ os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://money:money@localhos
 
 from app.ai.provider import set_llm_client  # noqa: E402
 from app.core.rate_limit import limiter  # noqa: E402
+from app.core.security import set_clock  # noqa: E402
 from app.db.session import sessionmaker  # noqa: E402
 from app.main import app  # noqa: E402
 
@@ -41,8 +43,13 @@ async def clean():
     limiter.reset()
     set_llm_client(None)
     yield
+    set_clock(None)
+    limiter.reset()
     async with sessionmaker()() as s:
         await s.execute(text("DELETE FROM legacy_users"))
+        await s.execute(text("DELETE FROM refresh_tokens"))
+        await s.execute(text("DELETE FROM devices"))
+        await s.execute(text("DELETE FROM rate_counters"))
         await s.commit()
     set_llm_client(None)
 
@@ -57,7 +64,7 @@ async def client():
 
 async def new_guest(client: AsyncClient) -> dict:
     r = await client.post(
-        "/v1/auth/anonymous",
+        "/v1/auth/guest",
         json={"platform": "ios", "appVersion": "1.0"},
         headers={"Idempotency-Key": str(uuid.uuid4())},
     )
@@ -77,6 +84,27 @@ async def guest(client):
 @pytest.fixture
 async def headers(guest):
     return auth(guest)
+
+
+class Clock:
+    """Часы сервиса под управлением теста (app.core.security.set_clock)."""
+
+    def __init__(self) -> None:
+        self.now = datetime.now(UTC).replace(microsecond=0)
+
+    def __call__(self) -> datetime:
+        return self.now
+
+    def tick(self, seconds: float) -> None:
+        self.now += timedelta(seconds=seconds)
+
+
+@pytest.fixture
+def clock():
+    c = Clock()
+    set_clock(c)
+    yield c
+    set_clock(None)
 
 
 PRODUCTS = "00000000-0000-4000-8000-000000000001"

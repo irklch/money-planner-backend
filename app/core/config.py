@@ -34,11 +34,13 @@ class Settings(BaseSettings):
     # --- Токены ---
     jwt_secret: SecretStr = SecretStr("dev-only-change-me-dev-only-change-me")
     jwt_algorithm: str = "HS256"
+    # Константы протокола (contract/config-parameters.json → protocol: ACCESS_TOKEN_TTL_S,
+    # REFRESH_TOKEN_TTL_DAYS, REFRESH_GRACE_S, GUEST_IDEMPOTENCY_WINDOW_H; совпадение проверяется тестом).
+    # Меняются только новой версией контракта; переопределение из env — для тестов.
     access_token_ttl_seconds: int = 15 * 60
-    # Схема БД: 12 мес, продлевается ротацией при каждом использовании.
-    refresh_token_ttl_days: int = 365
+    refresh_token_ttl_days: int = 365  # срок каждого refresh-токена; ротация выдаёт новый на 365 дней
     refresh_grace_seconds: int = 60
-    anonymous_idempotency_window_hours: int = 24
+    guest_idempotency_window_hours: int = 24
     # Секрет для детерминированных производных значений (refresh-токены при grace/replay).
     token_derivation_secret: SecretStr = SecretStr("dev-only-derivation-secret-change-me")
 
@@ -58,6 +60,7 @@ class Settings(BaseSettings):
     ai_categorization_enabled: bool = True
     ai_max_descriptions_per_import: int = Field(default=500, ge=0)
     guest_create_rate_per_ip: int = Field(default=10, ge=1)
+    auth_refresh_rate_per_ip: int = Field(default=30, ge=1)  # POST /v1/auth/refresh, в минуту на IP
 
     # --- Старый импорт (до E3) ---
     max_upload_bytes: int = 10 * 1024 * 1024
@@ -67,7 +70,6 @@ class Settings(BaseSettings):
     parse_concurrency_per_user: int = 1
 
     # --- Rate limits (в памяти процесса; MVP — один инстанс) ---
-    rate_auth_per_minute: int = 10
     rate_parse_per_minute: int = 10
     rate_import_per_minute: int = 20
     rate_insights_per_minute: int = 20

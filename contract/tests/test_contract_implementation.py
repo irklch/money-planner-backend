@@ -3,7 +3,8 @@
 - Эндпоинты с `x-stage` не позже него обязаны быть смонтированы приложением.
 - Эндпоинты более поздних этапов реализованными не считаются. Если путь уже обслуживает старый код
   (до замены на месте, план §11.2), он обязан быть в LEGACY с этапом замены — это не реализация контракта.
-- Ответы реализованных эндпоинтов проверяются против схем контракта тестами этапа (tests/test_e1_service.py).
+- Ответы реализованных эндпоинтов проверяются против схем контракта тестами этапа (tests/test_e1_service.py,
+  tests/test_auth.py, tests/test_guest_replay.py, tests/test_e2_contract_scenarios.py).
 """
 
 import re
@@ -11,8 +12,8 @@ import re
 from httpx import ASGITransport, AsyncClient
 
 # Старые маршруты на месте эндпоинтов контракта: (метод, путь) → этап, который их заменит.
+# E2: старый разбор принимает гостевой токен E2, но реализацией контракта E3 не считается.
 LEGACY = {
-    ("post", "/v1/auth/refresh"): "E2",
     ("post", "/v1/imports/parse"): "E3",
 }
 
@@ -30,6 +31,16 @@ def _app_routes() -> set[tuple[str, str]]:
 
 def test_implemented_through_is_a_stage(spec):
     assert _stage(spec["x-contract"]["implementedThrough"]) >= 1
+
+
+def test_implemented_through_is_e2(spec, operations):
+    """E2 реализован (/auth/guest, /auth/refresh), следующие этапы — нет (/auth/apple, /me)."""
+    assert spec["x-contract"]["implementedThrough"] == "E2"
+    assert operations[("post", "/v1/auth/guest")]["x-stage"] == "E2"
+    assert operations[("post", "/v1/auth/refresh")]["x-stage"] == "E2"
+    routed = _app_routes()
+    assert {("post", "/v1/auth/guest"), ("post", "/v1/auth/refresh")} <= routed
+    assert not {("post", "/v1/auth/apple"), ("post", "/v1/auth/logout"), ("get", "/v1/me")} & routed
 
 
 async def test_due_operations_are_routed(spec, operations):

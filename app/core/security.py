@@ -1,8 +1,19 @@
+"""Токены сессий (план §2.2, §2.8; контракт: securitySchemes, SessionTokens).
+
+- Access JWT (HS256, 15 мин) не хранится. Claims: `typ=access`, `kind` (guest | account), `did` — id
+  устройства, у аккаунта ещё `sub` = accountId (E5), `iat`, `exp`, `jti`.
+- Refresh-токен — непрозрачная строка; в БД только SHA-256 (hex). Повторы (POST /auth/guest с тем же
+  Idempotency-Key, refresh в grace-окне) должны вернуть тот же токен, поэтому токены не случайные, а
+  детерминированно выводятся HMAC-ом с серверным секретом (`TOKEN_DERIVATION_SECRET`) из ключа или из
+  предыдущего токена: открытый токен восстанавливается вычислением, а не чтением из БД.
+"""
+
 import base64
 import hashlib
 import hmac
-import secrets
 import uuid
+from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 import jwt
@@ -10,47 +21,74 @@ import jwt
 from app.core.config import Settings
 from app.core.errors import ApiError
 
+REFRESH_PREFIX = "rt_"
 
-def utcnow() -> datetime:
+
+def _system_clock() -> datetime:
     return datetime.now(UTC)
 
 
-def create_access_token(settings: Settings, user_id: uuid.UUID) -> tuple[str, datetime]:
-    now = utcnow()
-    expires = now + timedelta(seconds=settings.access_token_ttl_seconds)
-    payload = {
-        "sub": str(user_id),
-        "iat": int(now.timestamp()),
-        "exp": int(expires.timestamp()),
-        "typ": "access",
-        "jti": uuid.uuid4().hex,
-    }
+_clock: Callable[[], datetime] = _system_clock
+
+
+def utcnow() -> datetime:
+    """Единые часы сервиса для сроков токенов и активности устройств."""
+    return _clock()
+
+
+def set_clock(clock: Callable[[], datetime] | None) -> None:
+    """Тесты подменяют часы, чтобы проверять сроки (grace, 24 ч, 15 мин) без ожидания."""
+    global _clock
+    _clock = clock or _system_clock
+
+
+@dataclass(frozen=True)
+class AccessClaims:
+    kind: str
+    device_id: uuid.UUID
+
+
+def create_access_token(
+    settings: Settings, kind: str, device_id: uuid.UUID, issued_at: datetime, jti: str
+) -> tuple[str, datetime]:
+    """Access JWT. Одинаковые аргументы дают одинаковый токен (HS256 детерминирован): повтор refresh
+    в grace-окне возвращает ту же пару, что и потерянный ответ."""
+    iat = int(issued_at.timestamp())
+    exp = iat + settings.access_token_ttl_seconds
+    payload = {"typ": "access", "kind": kind, "did": str(device_id), "iat": iat, "exp": exp, "jti": jti}
     token = jwt.encode(payload, settings.jwt_secret.get_secret_value(), algorithm=settings.jwt_algorithm)
-    return token, expires
+    return token, datetime.fromtimestamp(exp, UTC)
 
 
-def decode_access_token(settings: Settings, token: str) -> uuid.UUID:
+def decode_access_token(settings: Settings, token: str, now: datetime) -> AccessClaims:
+    """Подпись и формат → `access_token_invalid`; истёк → `token_expired` (план §2.8).
+
+    Срок проверяется по часам сервиса, а не внутри PyJWT, чтобы подпись проверялась раньше срока:
+    поддельный истёкший токен — `access_token_invalid`, а не `token_expired`.
+    """
     try:
         payload = jwt.decode(
             token,
             settings.jwt_secret.get_secret_value(),
             algorithms=[settings.jwt_algorithm],
-            options={"require": ["sub", "exp", "iat", "typ"]},
+            options={
+                "require": ["typ", "kind", "did", "iat", "exp"],
+                "verify_exp": False,
+                "verify_iat": False,
+            },
         )
-    except jwt.ExpiredSignatureError as e:
-        raise ApiError("access_token_expired") from e
     except jwt.PyJWTError as e:
         raise ApiError("access_token_invalid") from e
-    if payload.get("typ") != "access":
+    # E2: только гостевые токены; токены аккаунта (`kind=account`, `sub`) добавляет E5.
+    if payload["typ"] != "access" or payload["kind"] != "guest" or not isinstance(payload["exp"], int):
         raise ApiError("access_token_invalid")
     try:
-        return uuid.UUID(payload["sub"])
-    except (ValueError, TypeError) as e:
+        device_id = uuid.UUID(payload["did"])
+    except (ValueError, TypeError, AttributeError) as e:
         raise ApiError("access_token_invalid") from e
-
-
-def new_refresh_token() -> str:
-    return secrets.token_urlsafe(48)
+    if payload["exp"] <= int(now.timestamp()):
+        raise ApiError("token_expired")
+    return AccessClaims(kind=payload["kind"], device_id=device_id)
 
 
 def hash_refresh_token(token: str) -> str:
@@ -63,13 +101,14 @@ def _derive(settings: Settings, purpose: str, value: str) -> bytes:
 
 
 def derive_refresh_token(settings: Settings, purpose: str, value: str) -> str:
-    """Детерминированный refresh-токен.
-
-    Нужен, чтобы повтор в grace-окне и повтор POST /auth/anonymous с тем же ключом возвращали
-    тот же refresh-токен, не храня его в открытом виде (в БД только хеш).
-    """
-    return base64.urlsafe_b64encode(_derive(settings, purpose, value)).rstrip(b"=").decode()
+    """Детерминированный refresh-токен: в БД только его хеш, повтор вычисляет его заново."""
+    return REFRESH_PREFIX + base64.urlsafe_b64encode(_derive(settings, purpose, value)).rstrip(b"=").decode()
 
 
-def derive_uuid(settings: Settings, purpose: str, value: str) -> uuid.UUID:
-    return uuid.UUID(bytes=_derive(settings, purpose, value)[:16], version=4)
+def derive_jti(settings: Settings, token_hash: str) -> str:
+    """jti access-токена, выданного вместе с refresh-токеном: тот же при повторе в grace-окне."""
+    return _derive(settings, "jti", token_hash)[:16].hex()
+
+
+def refresh_expires_at(settings: Settings, issued_at: datetime) -> datetime:
+    return issued_at + timedelta(days=settings.refresh_token_ttl_days)

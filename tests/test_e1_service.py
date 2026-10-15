@@ -1,4 +1,4 @@
-"""E1: /healthz по контракту, 503 при недоступной БД, состав маршрутов после отключения модулей."""
+"""E1: /healthz по контракту, 503 при недоступной БД, состав маршрутов после отключения модулей (с E2)."""
 
 import pathlib
 import sys
@@ -88,6 +88,10 @@ DISABLED = [
     ("GET", "/v1/analytics/summary?from=2026-09-01&to=2026-09-30"),
     ("GET", "/v1/analytics/dynamics?from=2026-09-01&to=2026-09-30"),
     ("GET", "/v1/insights?from=2026-09-01&to=2026-09-30"),
+    # Отключено в E2: старый вход заменён /v1/auth/guest; DELETE /v1/me удалял legacy_users, которых
+    # новый вход не создаёт (у гостя нет серверных данных). Удаление аккаунта — DELETE /v1/account (E7).
+    ("POST", "/v1/auth/anonymous"),
+    ("DELETE", "/v1/me"),
 ]
 
 
@@ -98,14 +102,13 @@ async def test_disabled_routes_are_gone(client, guest, method, path):
     assert r.json()["error"]["code"] == "not_found"
 
 
-async def test_route_table_is_exactly_e1(client):
+async def test_route_table_is_exactly_e2(client):
     # Маршруты API — из схемы приложения (все маршруты /v1 в неё входят); /healthz вне схемы.
     api = {(m.upper(), p) for p, ops in app.openapi()["paths"].items() for m in ops}
-    # Старые маршруты остаются до замены: /auth/* → E2 (/auth/guest), DELETE /me → E7, parse → E3.
+    # E2: /auth/guest и /auth/refresh по контракту; старый parse остаётся до E3 (по гостевому токену).
     assert api == {
-        ("POST", "/v1/auth/anonymous"),
+        ("POST", "/v1/auth/guest"),
         ("POST", "/v1/auth/refresh"),
-        ("DELETE", "/v1/me"),
         ("POST", "/v1/imports/parse"),
     }
     assert (await client.get("/healthz")).status_code == 200

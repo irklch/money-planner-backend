@@ -2,17 +2,17 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Money Planner API",
-    "description": "Контракт для iOS и будущего Android-клиента. Даты — YYYY-MM-DD, суммы — decimal-строки с 2 знаками (RUB). Все запросы, кроме /auth/*, — с Authorization: Bearer <accessToken>. Ошибки — единый формат { error: { code, message, status, retryable, requestId, details } }.",
+    "description": "Контракт для iOS и будущего Android-клиента. Даты — YYYY-MM-DD, суммы — decimal-строки с 2 знаками (RUB). Все запросы, кроме /auth/*, — с Authorization: Bearer <accessToken> (гостевой токен устройства из POST /v1/auth/guest). Ошибки — единый формат { error: { code, message, status, retryable, requestId, details } }.",
     "version": "1.0.0"
   },
   "paths": {
-    "/v1/auth/anonymous": {
+    "/v1/auth/guest": {
       "post": {
         "tags": [
           "auth"
         ],
-        "summary": "Create Anonymous",
-        "operationId": "create_anonymous_v1_auth_anonymous_post",
+        "summary": "Create Guest Session",
+        "operationId": "create_guest_session_v1_auth_guest_post",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -36,7 +36,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/AnonymousRequest"
+                "$ref": "#/components/schemas/GuestSessionRequest"
               }
             }
           }
@@ -47,7 +47,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/AuthSession"
+                  "$ref": "#/components/schemas/GuestSession"
                 }
               }
             }
@@ -72,8 +72,28 @@
               }
             }
           },
+          "422": {
+            "description": "`validation_failed`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
           "429": {
             "description": "`rate_limited` (retryable)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "`internal_error` (retryable)",
             "content": {
               "application/json": {
                 "schema": {
@@ -100,8 +120,8 @@
         "tags": [
           "auth"
         ],
-        "summary": "Refresh",
-        "operationId": "refresh_v1_auth_refresh_post",
+        "summary": "Refresh Session",
+        "operationId": "refresh_session_v1_auth_refresh_post",
         "requestBody": {
           "content": {
             "application/json": {
@@ -118,13 +138,33 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/AuthSession"
+                  "$ref": "#/components/schemas/GuestSession"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`invalid_request`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
                 }
               }
             }
           },
           "401": {
-            "description": "`refresh_token_invalid` · `refresh_token_expired` · `user_deleted`",
+            "description": "`refresh_token_invalid` · `session_revoked` · `account_deleted`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "`validation_failed`",
             "content": {
               "application/json": {
                 "schema": {
@@ -135,6 +175,16 @@
           },
           "429": {
             "description": "`rate_limited` (retryable)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "`internal_error` (retryable)",
             "content": {
               "application/json": {
                 "schema": {
@@ -154,46 +204,6 @@
             }
           }
         }
-      }
-    },
-    "/v1/me": {
-      "delete": {
-        "tags": [
-          "account"
-        ],
-        "summary": "Delete Me",
-        "description": "Удаляет guest и всё, что ему принадлежит (каскад по FK): expenses, свои категории\n(включая архивные), free_days, expense_imports, refresh_tokens. Системные категории не трогаются.\nПовтор после успеха → 401 user_deleted (iOS считает это успехом).",
-        "operationId": "delete_me_v1_me_delete",
-        "responses": {
-          "204": {
-            "description": "Successful Response"
-          },
-          "401": {
-            "description": "`access_token_expired` (retryable) · `access_token_invalid` · `user_deleted`",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "`service_unavailable` (retryable)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "bearerAuth": []
-          }
-        ]
       }
     },
     "/v1/imports/parse": {
@@ -234,7 +244,7 @@
             }
           },
           "401": {
-            "description": "`access_token_expired` (retryable) · `access_token_invalid` · `user_deleted`",
+            "description": "`token_expired` (retryable) · `access_token_invalid`",
             "content": {
               "application/json": {
                 "schema": {
@@ -292,6 +302,16 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "`service_unavailable` (retryable)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -304,40 +324,36 @@
   },
   "components": {
     "schemas": {
-      "AnonymousRequest": {
+      "BankOut": {
         "properties": {
-          "platform": {
+          "code": {
             "type": "string",
-            "enum": [
-              "ios",
-              "android"
-            ],
-            "title": "Platform"
+            "title": "Code"
           },
-          "appVersion": {
+          "name": {
             "type": "string",
-            "maxLength": 32,
-            "minLength": 1,
-            "title": "Appversion"
+            "title": "Name"
           }
         },
         "type": "object",
         "required": [
-          "platform",
-          "appVersion"
+          "code",
+          "name"
         ],
-        "title": "AnonymousRequest"
+        "title": "BankOut"
       },
-      "AuthSession": {
+      "GuestSession": {
         "properties": {
-          "userId": {
+          "subjectKind": {
+            "type": "string",
+            "const": "guest",
+            "title": "Subjectkind",
+            "default": "guest"
+          },
+          "deviceId": {
             "type": "string",
             "format": "uuid",
-            "title": "Userid"
-          },
-          "isAnonymous": {
-            "type": "boolean",
-            "title": "Isanonymous"
+            "title": "Deviceid"
           },
           "accessToken": {
             "type": "string",
@@ -360,32 +376,37 @@
         },
         "type": "object",
         "required": [
-          "userId",
-          "isAnonymous",
+          "deviceId",
           "accessToken",
           "accessTokenExpiresAt",
           "refreshToken",
           "refreshTokenExpiresAt"
         ],
-        "title": "AuthSession"
+        "title": "GuestSession"
       },
-      "BankOut": {
+      "GuestSessionRequest": {
         "properties": {
-          "code": {
+          "platform": {
             "type": "string",
-            "title": "Code"
+            "enum": [
+              "ios",
+              "android"
+            ],
+            "title": "Platform"
           },
-          "name": {
+          "appVersion": {
             "type": "string",
-            "title": "Name"
+            "maxLength": 32,
+            "minLength": 1,
+            "title": "Appversion"
           }
         },
         "type": "object",
         "required": [
-          "code",
-          "name"
+          "platform",
+          "appVersion"
         ],
-        "title": "BankOut"
+        "title": "GuestSessionRequest"
       },
       "ParseResult": {
         "properties": {
@@ -588,8 +609,8 @@
               "code": {
                 "type": "string",
                 "enum": [
-                  "access_token_expired",
                   "access_token_invalid",
+                  "account_deleted",
                   "category_archived",
                   "category_name_taken",
                   "category_not_found",
@@ -610,12 +631,12 @@
                   "payload_too_large",
                   "processing_failed",
                   "rate_limited",
-                  "refresh_token_expired",
                   "refresh_token_invalid",
                   "service_unavailable",
+                  "session_revoked",
+                  "token_expired",
                   "unknown_bank",
                   "unsupported_format",
-                  "user_deleted",
                   "validation_failed"
                 ]
               },

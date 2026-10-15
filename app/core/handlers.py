@@ -44,6 +44,10 @@ FIELD_DEFAULT_CODE = {
     "compareFrom": "range_invalid",
     "compareTo": "range_invalid",
     "limit": "range_invalid",
+    # E2: /v1/auth/guest, /v1/auth/refresh
+    "platform": "platform_invalid",
+    "appVersion": "app_version_invalid",
+    "refreshToken": "refresh_token_malformed",
 }
 
 

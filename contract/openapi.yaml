@@ -44,7 +44,7 @@ x-contract:
   planRevision: '5.1'
   stage: E0
   # Эндпоинты с x-stage не позже этого этапа реализованы приложением (contract/tests/test_contract_implementation.py).
-  implementedThrough: E1
+  implementedThrough: E2
   dayMarkNamespace: 97a5414e-31da-4b51-85c7-7ea3eab0c81d
   systemCategoryRegistry: contract/system-categories.json
   systemCategoryRegistryStatus: approved
