@@ -7,7 +7,6 @@ from app.core.handlers import install_handlers
 from app.core.logging import setup_logging
 from app.core.openapi import install_openapi
 from app.db.session import dispose_engine, init_engine, ping
-from app.modules.account.router import router as account_router
 from app.modules.auth.router import router as auth_router
 from app.modules.imports.router import router as imports_router
 
@@ -30,7 +29,8 @@ def create_app() -> FastAPI:
         version="1.0.0",
         description=(
             "Контракт для iOS и будущего Android-клиента. Даты — YYYY-MM-DD, суммы — decimal-строки "
-            "с 2 знаками (RUB). Все запросы, кроме /auth/*, — с Authorization: Bearer <accessToken>. "
+            "с 2 знаками (RUB). Все запросы, кроме /auth/*, — с Authorization: Bearer <accessToken> "
+            "(гостевой токен устройства из POST /v1/auth/guest). "
             "Ошибки — единый формат { error: { code, message, status, retryable, requestId, details } }."
         ),
         lifespan=lifespan,
@@ -42,9 +42,11 @@ def create_app() -> FastAPI:
     install_openapi(app)
 
     # E1 (план §11.2): expenses, categories CRUD, calendar, analytics, insights уходят на iOS или вне MVP
-    # и отключены из приложения. Код модулей удаляется в E11; auth, account, imports заменяются в E2–E7.
+    # и отключены из приложения. E2: /auth/guest и /auth/refresh на таблицах MVP; старый /auth/anonymous
+    # заменён, старый DELETE /me (субъект — legacy_users) отключён до DELETE /account (E7).
+    # Код отключённых модулей удаляется в E11; imports заменяется в E3–E4.
     v1 = APIRouter(prefix="/v1")
-    for r in (auth_router, account_router, imports_router):
+    for r in (auth_router, imports_router):
         v1.include_router(r)
     app.include_router(v1)
 

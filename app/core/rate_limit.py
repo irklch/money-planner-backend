@@ -14,11 +14,15 @@ from app.core.errors import ApiError
 
 
 class SlidingWindowLimiter:
+    """Скользящее окно: не больше limit запросов за последние window_seconds; иначе 429 rate_limited
+    с Retry-After — через сколько секунд освободится место (самый старый запрос выйдет из окна)."""
+
     def __init__(self) -> None:
         self._hits: dict[str, deque[float]] = defaultdict(deque)
+        self.clock = time.monotonic  # тесты подменяют часы, чтобы проверить границы окна
 
     def hit(self, key: str, limit: int, window_seconds: float = 60.0) -> None:
-        now = time.monotonic()
+        now = self.clock()
         q = self._hits[key]
         while q and q[0] <= now - window_seconds:
             q.popleft()
@@ -31,6 +35,7 @@ class SlidingWindowLimiter:
 
     def reset(self) -> None:
         self._hits.clear()
+        self.clock = time.monotonic
 
 
 class ConcurrencyGate:

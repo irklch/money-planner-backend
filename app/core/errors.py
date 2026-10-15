@@ -10,11 +10,14 @@ from typing import Any
 # code -> (status, retryable, message)
 ERROR_CATALOG: dict[str, tuple[int, bool, str]] = {
     "invalid_request": (400, False, "Request could not be parsed"),
-    "access_token_expired": (401, True, "Access token expired"),
+    # Коды 401 по плану §2.8 (E2). session_revoked и account_deleted выдаёт refresh по revoked_reason;
+    # сами причины появляются с E5/E7. Старые access_token_expired, refresh_token_expired, user_deleted
+    # заменены на token_expired, refresh_token_invalid, account_deleted (docs/api-contract.md §4).
+    "token_expired": (401, True, "Access token expired"),
     "access_token_invalid": (401, False, "Access token invalid"),
     "refresh_token_invalid": (401, False, "Refresh token invalid"),
-    "refresh_token_expired": (401, False, "Refresh token expired"),
-    "user_deleted": (401, False, "User deleted"),
+    "session_revoked": (401, False, "Session revoked"),
+    "account_deleted": (401, False, "Account deleted"),
     "payload_too_large": (413, False, "Payload too large"),
     "rate_limited": (429, True, "Too many requests"),
     "internal_error": (500, True, "Internal error"),

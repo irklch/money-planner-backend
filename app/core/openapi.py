@@ -8,7 +8,7 @@ from fastapi.openapi.utils import get_openapi
 
 from app.core.errors import ERROR_CATALOG
 
-AUTH_ERRORS = ("access_token_expired", "access_token_invalid", "user_deleted")
+AUTH_ERRORS = ("token_expired", "access_token_invalid")
 
 # details[] для 400 invalid_request — по заголовкам.
 HEADER_DETAIL_CODES = {
@@ -16,7 +16,7 @@ HEADER_DETAIL_CODES = {
     "X-Timezone": "timezone_required — нет или пустой; timezone_invalid — не IANA-имя (например «+03:00»)",
 }
 ENDPOINT_HEADERS: dict[tuple[str, str], tuple[str, ...]] = {
-    ("post", "/v1/auth/anonymous"): ("Idempotency-Key",),
+    ("post", "/v1/auth/guest"): ("Idempotency-Key",),
     ("post", "/v1/categories"): ("Idempotency-Key",),
     ("post", "/v1/expenses"): ("Idempotency-Key", "X-Timezone"),
     ("patch", "/v1/expenses/{expense_id}"): ("X-Timezone",),
@@ -26,21 +26,30 @@ ENDPOINT_HEADERS: dict[tuple[str, str], tuple[str, ...]] = {
 
 # (method, path) → коды ошибок из 08 — Endpoint Contracts (+ docs/contract-changes.md)
 ENDPOINT_ERRORS: dict[tuple[str, str], tuple[tuple[str, ...], bool]] = {
-    ("post", "/v1/auth/anonymous"): (
-        ("invalid_request", "idempotency_key_reused", "rate_limited", "service_unavailable"),
-        False,
-    ),
-    ("post", "/v1/auth/refresh"): (
+    ("post", "/v1/auth/guest"): (
         (
-            "refresh_token_invalid",
-            "refresh_token_expired",
-            "user_deleted",
+            "invalid_request",
+            "validation_failed",
+            "idempotency_key_reused",
             "rate_limited",
+            "internal_error",
             "service_unavailable",
         ),
         False,
     ),
-    ("delete", "/v1/me"): (("service_unavailable",), True),
+    ("post", "/v1/auth/refresh"): (
+        (
+            "invalid_request",
+            "validation_failed",
+            "refresh_token_invalid",
+            "session_revoked",
+            "account_deleted",
+            "rate_limited",
+            "internal_error",
+            "service_unavailable",
+        ),
+        False,
+    ),
     ("get", "/v1/categories"): ((), True),
     ("post", "/v1/categories"): (
         ("invalid_request", "validation_failed", "category_name_taken", "idempotency_key_reused"),
@@ -68,6 +77,7 @@ ENDPOINT_ERRORS: dict[tuple[str, str], tuple[tuple[str, ...], bool]] = {
             "income_only",
             "rate_limited",
             "processing_failed",
+            "service_unavailable",
         ),
         True,
     ),
