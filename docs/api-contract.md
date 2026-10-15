@@ -202,7 +202,8 @@
 | Параллельный разбор | 1 на устройство / 4 на экземпляр | `429 rate_limited` / `503 service_unavailable` |
 | Неподтверждённые результаты | 3 за 24 ч на устройство | `429 unconfirmed_imports_limit` + `Retry-After` |
 | `categoryHints` | ≤ 500, `merchantKey` ≤ 40 символов | `422 validation_failed` |
-| Создание гостевых записей | 10 в минуту на IP | `429 rate_limited` |
+| Создание гостевых записей | `GUEST_CREATE_RATE_PER_IP` = 10 в минуту на IP | `429 rate_limited` + `Retry-After` |
+| Обновление сессии (`POST /v1/auth/refresh`) | `AUTH_REFRESH_RATE_PER_IP` = 30 в минуту на IP | `429 rate_limited` + `Retry-After` |
 | Push | ≤ 500 мутаций и ≤ 1 МБ (клиент шлёт по 100) | `413 payload_too_large` |
 | Pull | `limit` 1–500, по умолчанию 500 | `422 validation_failed` |
 | Комментарий расхода | ≤ 200 Unicode scalar values | sync — `rejected/invalid`; импорт — обрезка по графемам |

@@ -29,5 +29,6 @@ async def create_guest_session(
 async def refresh_session(
     body: RefreshRequest, request: Request, session: SessionDep, settings: SettingsDep
 ) -> GuestSession:
-    limiter.hit(f"refresh:{client_ip(request)}", settings.rate_auth_per_minute * 3)
+    # AUTH_REFRESH_RATE_PER_IP: в минуту на IP, до обращения к БД.
+    limiter.hit(f"refresh:{client_ip(request)}", settings.auth_refresh_rate_per_ip)
     return await service.refresh(session, settings, body.refresh_token)

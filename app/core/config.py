@@ -60,6 +60,7 @@ class Settings(BaseSettings):
     ai_categorization_enabled: bool = True
     ai_max_descriptions_per_import: int = Field(default=500, ge=0)
     guest_create_rate_per_ip: int = Field(default=10, ge=1)
+    auth_refresh_rate_per_ip: int = Field(default=30, ge=1)  # POST /v1/auth/refresh, в минуту на IP
 
     # --- Старый импорт (до E3) ---
     max_upload_bytes: int = 10 * 1024 * 1024
@@ -69,9 +70,6 @@ class Settings(BaseSettings):
     parse_concurrency_per_user: int = 1
 
     # --- Rate limits (в памяти процесса; MVP — один инстанс) ---
-    # POST /auth/refresh: rate_auth_per_minute × 3 на IP (защита из старого кода; в контракте —
-    # только ответ 429). Создание гостевых записей — GUEST_CREATE_RATE_PER_IP выше.
-    rate_auth_per_minute: int = 10
     rate_parse_per_minute: int = 10
     rate_import_per_minute: int = 20
     rate_insights_per_minute: int = 20

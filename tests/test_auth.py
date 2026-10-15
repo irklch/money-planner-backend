@@ -37,8 +37,8 @@ async def create(client, key=None, body=None, **headers):
     return r
 
 
-async def refresh(client, token):
-    r = await client.post("/v1/auth/refresh", json={"refreshToken": token})
+async def refresh(client, token, **headers):
+    r = await client.post("/v1/auth/refresh", json={"refreshToken": token}, headers=headers)
     conforms(*REFRESH, r)
     return r
 
@@ -399,17 +399,43 @@ async def test_guest_create_rate_per_ip(client):
         assert await s.scalar(select(func.count()).select_from(Device)) == limit + 1
 
 
-async def test_refresh_rate_per_ip(client):
+async def test_refresh_rate_per_ip_default_is_30(client):
     tick = FakeMonotonic()
     limiter.clock = tick
     g = (await create(client)).json()
-    limit = get_settings().rate_auth_per_minute * 3
-    for _ in range(limit):
+    assert get_settings().auth_refresh_rate_per_ip == 30  # AUTH_REFRESH_RATE_PER_IP
+    for _ in range(30):
         assert (await refresh(client, "rt_" + "y" * 43)).status_code == 401
     r = await refresh(client, g["refreshToken"])
-    assert r.status_code == 429 and code(r) == "rate_limited" and int(r.headers["Retry-After"]) == 60
+    assert r.status_code == 429 and code(r) == "rate_limited" and r.json()["error"]["retryable"] is True
+    assert r.headers["Retry-After"] == "60"
+    assert g["refreshToken"] not in r.text
     tick.t += 60
     assert (await refresh(client, g["refreshToken"])).status_code == 200
+
+
+async def test_refresh_rate_uses_its_own_setting(client, monkeypatch):
+    """Лимит refresh — отдельная настройка: меняется без влияния на лимит создания гостевых записей."""
+    tick = FakeMonotonic()
+    limiter.clock = tick
+    settings = get_settings()
+    monkeypatch.setattr(settings, "auth_refresh_rate_per_ip", 3)
+    g = (await create(client)).json()
+    for i in range(3):
+        tick.t = 1000.0 + i * 10
+        assert (await refresh(client, "rt_" + "z" * 43)).status_code == 401
+    tick.t = 1000.0 + 25
+    r = await refresh(client, g["refreshToken"])
+    assert r.status_code == 429 and code(r) == "rate_limited"
+    assert r.headers["Retry-After"] == "35"  # первый запрос выйдет из окна через 35 с
+    # Другой IP — свой счётчик; лимит создания гостевых записей не затронут.
+    assert (await refresh(client, g["refreshToken"], **{"X-Forwarded-For": "203.0.113.9"})).status_code == 200
+    assert (await create(client)).status_code == 201
+    tick.t = 1000.0 + 59.9
+    assert (await refresh(client, "rt_" + "z" * 43)).status_code == 429
+    tick.t = 1000.0 + 60  # граница окна: первый запрос вышел
+    assert (await refresh(client, "rt_" + "z" * 43)).status_code == 401
+    assert (await refresh(client, "rt_" + "z" * 43)).status_code == 429
 
 
 # --- недоступная БД и секреты -------------------------------------------------------------------------

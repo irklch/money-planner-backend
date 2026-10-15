@@ -33,19 +33,31 @@ def test_parameters_are_overridden_from_env(monkeypatch):
     monkeypatch.setenv("ENFORCE_QUOTAS", "true")
     monkeypatch.setenv("AI_CATEGORIZATION_ENABLED", "false")
     monkeypatch.setenv("IMPORT_CONCURRENCY_PER_INSTANCE", "2")
+    monkeypatch.setenv("AUTH_REFRESH_RATE_PER_IP", "45")
     s = Settings()
+    assert s.auth_refresh_rate_per_ip == 45
     assert (s.import_rate_per_day, s.enforce_quotas, s.ai_categorization_enabled) == (7, True, False)
     assert s.import_concurrency_per_instance == 2
 
 
 @pytest.mark.parametrize(
     ("name", "value"),
-    [("IMPORT_RATE_PER_DAY", "0"), ("IMPORT_MAX_FILE_BYTES", "-1"), ("IMPORT_PARSE_TIMEOUT_S", "1000")],
+    [
+        ("IMPORT_RATE_PER_DAY", "0"),
+        ("IMPORT_MAX_FILE_BYTES", "-1"),
+        ("IMPORT_PARSE_TIMEOUT_S", "1000"),
+        ("AUTH_REFRESH_RATE_PER_IP", "0"),
+    ],
 )
 def test_invalid_values_are_rejected(monkeypatch, name, value):
     monkeypatch.setenv(name, value)
     with pytest.raises(ValidationError):
         Settings()
+
+
+def test_refresh_limit_replaces_old_multiplier():
+    # E2: лимит refresh — AUTH_REFRESH_RATE_PER_IP, а не прежний RATE_AUTH_PER_MINUTE × 3.
+    assert not hasattr(Settings(), "rate_auth_per_minute")
 
 
 def test_lockbox_and_metadata_iam_are_gone(monkeypatch):

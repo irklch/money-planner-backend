@@ -416,6 +416,7 @@ POST /v1/imports/{importId}/displayed
 | `AI_CATEGORIZATION_ENABLED` | `true` | выключено → `categoryStatus = unassigned` |
 | `AI_MAX_DESCRIPTIONS_PER_IMPORT` | 500 | остальные → `categoryStatus = unassigned` |
 | `GUEST_CREATE_RATE_PER_IP` | 10 в минуту | `429` |
+| `AUTH_REFRESH_RATE_PER_IP` | 30 в минуту на IP (`POST /v1/auth/refresh`; утверждено на ревью E2, PR #9) | `429 rate_limited`, `Retry-After` |
 
 Сейчас в коде лимит файла 10 МБ — исправить в E3. Тестовая выписка — 23 КБ.
 
@@ -837,7 +838,7 @@ PR #6 «E1: YDB foundation» открыт, CI красный (`tests_ydb/test_yd
 | `POST /v1/auth/refresh` | контракт E2 на `refresh_tokens` (вместо `legacy_refresh_tokens`) |
 | `POST /v1/imports/parse` | старая реализация до E3 (`LEGACY`), авторизация — гостевым токеном E2; пользовательских категорий у устройства нет, категоризация — по системным; лимиты — на устройство |
 | `POST /v1/auth/anonymous` | отключён (404): заменён `/v1/auth/guest` |
-| `DELETE /v1/me` | отключён (404): удалял запись `legacy_users`, которую новый вход не создаёт; у гостя нет серверных данных, а гостевые записи по §2.7 удаляются только по неактивности. Удаление аккаунта — `DELETE /v1/account` (E7) |
+| `DELETE /v1/me` | отключён (404), принято на ревью E2: удалял запись `legacy_users`, которую новый вход не создаёт; у гостя нет серверных данных. Нового маршрута удаления в E2 нет: удаление аккаунта — `DELETE /v1/account` (E7), очистка неактивных гостевых устройств — `maintenance` (E8) |
 | `/v1/me`, `/v1/auth/apple`, `/v1/auth/logout`, `/v1/account*`, `/v1/sync/*`, `/v1/imports/{id}/displayed` | не реализованы — этапы E4–E7 |
 
 **Решения реализации.**
@@ -847,7 +848,7 @@ PR #6 «E1: YDB foundation» открыт, CI красный (`tests_ydb/test_yd
 - Grace 60 с включительно: та же пара, включая access JWT (он выводится из строки нового токена). Если новый токен уже использован, повтор старого — reuse (как в старом коде; ответ не был потерян). Reuse отзывает family с `revoked_reason = reuse_detected`. Истёкший токен — `refresh_token_invalid` без отзыва family. `revoked_reason` `session_revoked` и `account_deleted` отдаются своими кодами (их ставят E5, E7).
 - Конкурентность: создание по одному ключу сериализуется advisory-блокировкой по ключу; все операции над family — advisory-блокировкой по `family_id` (отзыв и параллельная ротация не оставляют действующих токенов в отозванной family).
 - `devices.last_seen_at` — при создании, ротации refresh и любом запросе с access-токеном, не чаще раза в сутки.
-- Лимиты: `GUEST_CREATE_RATE_PER_IP` (10 в минуту на IP, скользящее окно в памяти процесса; учитываются и повторы, до обращения к БД) → `429 rate_limited` + `Retry-After`. `/auth/refresh` — защита из старого кода, `RATE_AUTH_PER_MINUTE × 3` (30 в минуту) на IP; в реестре параметров её нет, контракт объявляет только ответ `429`. Суточные лимиты — `app/core/rate_counters.py` (атомарный счётчик в `rate_counters`, окно — сутки UTC); подключает его E3 (`IMPORT_RATE_PER_DAY`).
+- Лимиты: `GUEST_CREATE_RATE_PER_IP` (10 в минуту на IP, скользящее окно в памяти процесса; учитываются и повторы, до обращения к БД) → `429 rate_limited` + `Retry-After`. `/auth/refresh` — `AUTH_REFRESH_RATE_PER_IP` (30 в минуту на IP, так же в памяти процесса) → `429 rate_limited` + `Retry-After`; параметр добавлен в `contract/config-parameters.json` по итогам ревью E2. Суточные лимиты — `app/core/rate_counters.py` (атомарный счётчик в `rate_counters`, окно — сутки UTC); подключает его E3 (`IMPORT_RATE_PER_DAY`).
 - Ошибки валидации тела: не JSON или не объект — `400 invalid_request`; поля — `422 validation_failed` с `details[]`: `platform_invalid`, `app_version_invalid`, `refresh_token_malformed`.
 - Миграции нет: схема 0004 покрывает E2.
 

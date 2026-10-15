@@ -13,7 +13,8 @@
     {"name": "ENFORCE_QUOTAS", "default": false, "unit": "flag", "onExceed": null},
     {"name": "AI_CATEGORIZATION_ENABLED", "default": true, "unit": "flag", "onExceed": null, "note": "false → categoryStatus=unassigned для нераспознанных правилами и подсказками"},
     {"name": "AI_MAX_DESCRIPTIONS_PER_IMPORT", "default": 500, "unit": "descriptions", "onExceed": null, "note": "остальные → categoryStatus=unassigned"},
-    {"name": "GUEST_CREATE_RATE_PER_IP", "default": 10, "unit": "requests/ip/minute", "onExceed": {"status": 429, "code": "rate_limited", "retryAfter": true}}
+    {"name": "GUEST_CREATE_RATE_PER_IP", "default": 10, "unit": "requests/ip/minute", "onExceed": {"status": 429, "code": "rate_limited", "retryAfter": true}},
+    {"name": "AUTH_REFRESH_RATE_PER_IP", "default": 30, "unit": "requests/ip/minute", "onExceed": {"status": 429, "code": "rate_limited", "retryAfter": true}, "note": "POST /v1/auth/refresh; утверждён на ревью E2 (PR #9)"}
   ],
   "protocol": [
     {"name": "SYNC_PUSH_MAX_MUTATIONS", "value": 500, "onExceed": {"status": 413, "code": "payload_too_large"}},
