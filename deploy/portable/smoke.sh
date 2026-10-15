@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Сквозная проверка сервера на возможностях E1: healthz (готовность БД) → гостевая сессия (запись в БД) →
-# идемпотентный повтор → ротация refresh-токена (чтение и запись в БД) → отключённые маршруты дают 404.
-# Гостевая сессия — старый /v1/auth/anonymous (таблицы legacy_*) до E2, где его заменит /v1/auth/guest.
-# Создаёт одну тестовую guest-запись без финансовых данных; её удалит maintenance через 12 мес.
+# Сквозная проверка сервера на возможностях E2: healthz (готовность БД) → гостевая запись устройства
+# /v1/auth/guest (devices, refresh_tokens) → идемпотентный повтор → ротация refresh-токена → повтор в
+# grace-окне (та же пара) → гостевой токен принят защищённым маршрутом → отключённые маршруты дают 404.
+# Создаёт одну тестовую запись устройства без финансовых данных; её очистит maintenance (E8).
 #
 #   smoke.sh                         локально на сервере (http://127.0.0.1:8000)
 #   smoke.sh https://api.example.ru  через домен
@@ -34,24 +34,36 @@ fi
 
 step "guest session (DB write)"
 key=$(python3 -c "import uuid; print(uuid.uuid4())")
-session=$(c -X POST "$base/v1/auth/anonymous" -H 'Content-Type: application/json' \
+session=$(c -X POST "$base/v1/auth/guest" -H 'Content-Type: application/json' \
 	-H "Idempotency-Key: $key" -d '{"platform":"ios","appVersion":"smoke"}')
-refresh=$(printf '%s' "$session" | python3 -c 'import json,sys; print(json.load(sys.stdin)["refreshToken"])')
-echo ok
+field() { python3 -c 'import json,sys; print(json.load(sys.stdin)[sys.argv[1]])' "$1"; }
+refresh=$(field refreshToken <<<"$session")
+[ "$(field subjectKind <<<"$session")" = guest ] && echo ok
 
 # Повтор — до ротации: после неё тот же ключ по контракту даёт 409.
 step "idempotent replay"
-c -o /dev/null -D - -X POST "$base/v1/auth/anonymous" -H 'Content-Type: application/json' \
+c -o /dev/null -D - -X POST "$base/v1/auth/guest" -H 'Content-Type: application/json' \
 	-H "Idempotency-Key: $key" -d '{"platform":"ios","appVersion":"smoke"}' |
 	grep -qi '^idempotent-replayed: true' && echo ok
 
 step "refresh rotation (DB r/w)"
-rotated=$(c -X POST "$base/v1/auth/refresh" -H 'Content-Type: application/json' -d "{\"refreshToken\":\"$refresh\"}" |
-	python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["refreshToken"] != "'"$refresh"'" and bool(d["accessToken"]))')
-[ "$rotated" = True ] && echo ok
+rotated=$(c -X POST "$base/v1/auth/refresh" -H 'Content-Type: application/json' -d "{\"refreshToken\":\"$refresh\"}")
+[ "$(field refreshToken <<<"$rotated")" != "$refresh" ] && echo ok
+
+# Потерянный ответ: повтор старого токена в grace-окне (60 с) возвращает ту же пару.
+step "refresh retry within grace"
+retry=$(c -X POST "$base/v1/auth/refresh" -H 'Content-Type: application/json' -d "{\"refreshToken\":\"$refresh\"}")
+[ "$retry" = "$rotated" ] && echo ok
+
+# Без файла после успешной авторизации разбор отвечает 400; без токена — 401.
+step "guest token is accepted"
+access=$(field accessToken <<<"$rotated")
+[ "$(status -X POST "$base/v1/imports/parse" -H "Authorization: Bearer $access")" = 400 ] &&
+	[ "$(status -X POST "$base/v1/imports/parse")" = 401 ] && echo ok
 
 step "disabled routes are 404"
-code=$(status "$base/v1/categories")
-[ "$code" = 404 ] && echo ok
+[ "$(status "$base/v1/categories")" = 404 ] &&
+	[ "$(status -X POST "$base/v1/auth/anonymous")" = 404 ] &&
+	[ "$(status -X DELETE "$base/v1/me" -H "Authorization: Bearer $access")" = 404 ] && echo ok
 
 echo "smoke: all checks passed for $base${ip:+ via $ip}"

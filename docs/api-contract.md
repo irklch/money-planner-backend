@@ -187,7 +187,9 @@
 
 Сценарии — `TestAuth::test_refresh_lost_response_*`.
 
-`Idempotency-Key` — UUID, генерируется клиентом; отсутствие или не-UUID → `400 invalid_request`. Ключ хранится вместе с операцией (установка; выбранный файл импорта) и не переиспользуется для другой операции.
+`Idempotency-Key` — UUID, генерируется клиентом; отсутствие или не-UUID → `400 invalid_request`. Ключ хранится вместе с операцией (установка; выбранный файл импорта) и не переиспользуется для другой операции: `POST /v1/auth/guest` с тем же ключом и другим телом (`platform`, `appVersion`) → `409 idempotency_key_reused` (реализация E2).
+
+Коды `details[]` при `422 validation_failed` в `/v1/auth/*` (E2): `platform_invalid`, `app_version_invalid`, `refresh_token_malformed` (`field` — имя поля).
 
 ## 6. Ограничения
 
@@ -293,7 +295,7 @@ swift contract/swift/comment_rule_check.swift contract/vectors/comment.json   # 
 
 **Сценарии на эталонной модели** (`contract/tests/refmodel.py`, `test_contract_scenarios.py`): авторизация и коды 401, потерянные ответы входа Apple и refresh, удаление и вход во время удаления, идемпотентность импорта и клиентский черновик, граница валидации push и условие `410`. Каждый ответ модели проверяется против `contract/openapi.yaml`. На этапах E2–E7 те же сценарии запускаются против приложения.
 
-**Привязка кода к контракту (E1+).** `x-contract.implementedThrough` — последний реализованный этап (сейчас **E1**: `/healthz`). `contract/tests/test_contract_implementation.py` проверяет, что все эндпоинты с `x-stage` не позже него смонтированы в приложении. Пути более поздних этапов, которые пока обслуживает старый код (`POST /v1/auth/refresh` до E2, `POST /v1/imports/parse` до E3), перечислены в `LEGACY` этого теста с этапом замены и реализацией контракта не считаются. Ответы реализованных эндпоинтов тесты этапа проверяют против схем контракта (`contract_spec.schema_validator`, `tests/test_e1_service.py`). `scripts/openapi.py --check` сверяет `openapi.json` с кодом. Изменение контракта — отдельным коммитом с обновлением этого документа.
+**Привязка кода к контракту (E1+).** `x-contract.implementedThrough` — последний реализованный этап (сейчас **E2**: `/healthz`, `/v1/auth/guest`, `/v1/auth/refresh`). `contract/tests/test_contract_implementation.py` проверяет, что все эндпоинты с `x-stage` не позже него смонтированы в приложении. Пути более поздних этапов, которые пока обслуживает старый код (`POST /v1/imports/parse` до E3), перечислены в `LEGACY` этого теста с этапом замены и реализацией контракта не считаются. Ответы реализованных эндпоинтов тесты этапа проверяют против контракта (`tests/test_e1_service.py`; с E2 — `tests/contract.py` с `conforms()` эталонной модели, сценарии `TestAuth` против приложения — `tests/test_e2_contract_scenarios.py`). `scripts/openapi.py --check` сверяет `openapi.json` с кодом. Изменение контракта — отдельным коммитом с обновлением этого документа.
 
 ## 12. Уточнения к плану, сделанные в E0 [Т]
 

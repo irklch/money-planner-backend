@@ -688,7 +688,7 @@ AIService (MVP)
 | Компонент | Изменение | Этап |
 |---|---|---|
 | `app/db/models.py`, `migrations/` | Схема MVP (§7.1) — `app/db/schema.py`, миграция 0004; старые `users`/`refresh_tokens` переименованы в `legacy_*` и работают до E2–E7 (**сделано в E1**, план §11.1c) | E1 |
-| `app/modules/auth/*`, `app/core/security.py` | Гостевой вход → `POST /v1/auth/guest` (запись устройства, claim `did`); ротация refresh, grace-окно, reuse detection и идемпотентный повтор сохраняются; коды 401 (план §2.8); Sign in with Apple | E2, E5 |
+| `app/modules/auth/*`, `app/core/security.py` | Гостевой вход → `POST /v1/auth/guest` (запись устройства, claim `did`); ротация refresh, grace-окно, reuse detection и идемпотентный повтор сохраняются; коды 401 (план §2.8) (**сделано в E2**, план §11.1d); Sign in with Apple | E2, E5 |
 | `app/modules/imports/upload.py` | Лимит 10 → 2 МБ (`IMPORT_MAX_FILE_BYTES`) | E3 |
 | `app/modules/imports/service.py`, `categorization.py` | Категории и подсказки приходят в запросе, а не из БД; цепочка «правила → подсказки → LLM»; выключатель AI; обрезка комментария по графемам; `importId` и учёт без блокировки | E3, E4 |
 | `app/ai/yandex.py`, `provider.py` | → `AIService.classify_transactions`; доступ по API-ключу (без metadata-IAM); модель из конфигурации | E3 |

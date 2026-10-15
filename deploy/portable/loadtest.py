@@ -3,10 +3,10 @@
     python3 deploy/portable/loadtest.py tests/fixtures/banks/alfa/alfa_statement_test.xlsx <large.xlsx>
 
 <large.xlsx> — синтетическая выписка из scripts/make_synthetic_statement.py.
-Фазы (возможности E1): одиночный разбор малой и большой выписки, 4 и 8 одновременных разборов,
+Фазы (возможности E2): одиночный разбор малой и большой выписки, 4 и 8 одновременных разборов,
 600 запросов /healthz с проверкой БД. Строки «@@ <unix-time> <фаза>» — для сопоставления
 с vmstat и docker stats.
-Создаёт 8 гостевых записей (старый /v1/auth/anonymous до E2) без финансовых данных.
+Создаёт 8 гостевых записей устройств (/v1/auth/guest) без финансовых данных.
 """
 
 import concurrent.futures as cf
@@ -53,7 +53,7 @@ def req(method, path, headers=None, js=None, data=None, retry_429=True):
 def session():
     _, body, _, _ = req(
         "POST",
-        "/v1/auth/anonymous",
+        "/v1/auth/guest",
         {"Idempotency-Key": str(uuid.uuid4())},
         {"platform": "ios", "appVersion": "bench"},
     )

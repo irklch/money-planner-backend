@@ -2,7 +2,7 @@
 
 Модульный монолит: FastAPI, Pydantic v2, async SQLAlchemy 2.0, Alembic, PostgreSQL 16. API живёт под префиксом `/v1`, контракт для клиентов лежит в [`openapi.json`](openapi.json).
 
-> **Переход на local-first (план [`docs/production-migration-plan.md`](docs/production-migration-plan.md), ред. 6, D24: ВМ + Docker Compose + PostgreSQL).** Контракт API v1 для iOS и Android — [`contract/openapi.yaml`](contract/openapi.yaml), правила — [`docs/api-contract.md`](docs/api-contract.md). **Готово: E0 (контракт), E1 (каркас и схема MVP на PostgreSQL).** Старые `/v1/auth/*`, `DELETE /v1/me` и `/v1/imports/parse` работают до замены в E2–E7; модули, ушедшие на iOS, отключены. Статус этапов — план §11.0, результат E1 — §11.1c.
+> **Переход на local-first (план [`docs/production-migration-plan.md`](docs/production-migration-plan.md), ред. 6, D24: ВМ + Docker Compose + PostgreSQL).** Контракт API v1 для iOS и Android — [`contract/openapi.yaml`](contract/openapi.yaml), правила — [`docs/api-contract.md`](docs/api-contract.md). **Готово: E0 (контракт), E1 (каркас и схема MVP на PostgreSQL), E2 (гостевая запись устройства: `POST /v1/auth/guest`, `POST /v1/auth/refresh`).** Старый `/v1/imports/parse` работает до замены в E3 и принимает гостевой токен E2; старые `/v1/auth/anonymous` и `DELETE /v1/me` отключены; модули, ушедшие на iOS, отключены. Статус этапов — план §11.0, результаты E1 и E2 — §11.1c, §11.1d.
 
 Источники истины, по порядку приоритета:
 1. Figma «Money Planner — API Architecture», страница **11 — Database Schema**.
@@ -30,11 +30,11 @@ app/
                categories, expenses, free_days, expense_imports) до E11; session.py — пул, ping для /healthz
   ai/          LLMClient (свой интерфейс) + адаптер Yandex AI Studio
   modules/     смонтированы:
-    auth/        POST /auth/anonymous, /auth/refresh — до E2 (/auth/guest)
-    account/     DELETE /me — до E7 (DELETE /account)
-    imports/     POST /imports/parse — до E3: чтение в памяти, реестр банков, маскирование ПДн, категоризация
-               отключены в E1 (логика на iOS или вне MVP), код удаляется в E11:
-    categories/, expenses/, calendar/, analytics/, insights/
+    auth/        POST /auth/guest, /auth/refresh (E2): devices, refresh_tokens, claim did, ротация, grace, reuse
+    imports/     POST /imports/parse — до E3 (по гостевому токену E2): чтение в памяти, реестр банков,
+                 маскирование ПДн, категоризация
+               отключены (логика на iOS или вне MVP; account — до DELETE /account в E7), код удаляется в E11:
+    categories/, expenses/, calendar/, analytics/, insights/, account/
   jobs/        purge_inactive_users (12 мес), check_ai, fence_check (проверка домена при старте)
 migrations/    0001 — схема, 0002 — системные категории, 0003 — результат импорта, 0004 — схема MVP (E1)
 scripts/       openapi.py — экспорт и --check контракта кода; contract_spec.py — проверка contract/
@@ -52,8 +52,8 @@ docs/          disaster-recovery.md — аварийный план; infra-audit
 | `/healthz` и недоступная БД (E1) | `SELECT 1` через пул с таймаутом `DB_HEALTH_TIMEOUT_S`. БД недоступна — `503 service_unavailable` + `Retry-After` (`DB_UNAVAILABLE_RETRY_AFTER_S`) на `/healthz` и любом маршруте с БД; без текста драйвера, адреса и секретов в ответе и логе |
 | Идемпотентность импорта | `expense_imports.id = Idempotency-Key` + `request_hash` (SHA-256 нормализованного тела) + сохранённый результат (`imported_count`, `date_from`, `date_to`). Всё пишется одной транзакцией с расходами. То же тело → сохранённый результат; другое тело → `409 idempotency_key_reused`; параллельный запрос → `409 idempotency_in_progress` + `Retry-After`. |
 | Идемпотентность `POST /expenses` и `/categories` | Idempotency-Key становится id создаваемой записи, поэтому дополнительная таблица не нужна. Ключ другого пользователя даёт `409 idempotency_key_reused`. |
-| Повтор `POST /auth/anonymous` | refresh-токен = HMAC(`TOKEN_DERIVATION_SECRET`, ключ). В БД хранится только SHA-256 токена. Повтор пересчитывает токен из ключа и отдаёт его, только пока токен не ротирован, не отозван и не истёк, в пределах 24 ч. Иначе `409 idempotency_key_reused` без токенов. См. `docs/contract-changes.md`. |
-| Grace-окно refresh (60 с) | Новый токен детерминированно выводится из старого, поэтому повтор старого токена в окне отдаёт ту же новую пару. Вне окна это считается reuse и отзывается вся family. |
+| Повтор `POST /auth/guest` (E2) | Первый refresh-токен = HMAC(`TOKEN_DERIVATION_SECRET`, ключ). В БД хранится только SHA-256 токена. Повтор с тем же ключом и тем же телом пересчитывает токен и отдаёт тот же `deviceId` и refresh-токен (access JWT — новый), только пока токен не ротирован, не отозван и не истёк, в пределах 24 ч. Иначе `409 idempotency_key_reused` без токенов. `deviceId` создаёт сервер: клиент его не передаёт. Параллельные повторы сериализуются advisory-блокировкой. |
+| Grace-окно refresh (60 с, E2) | Новый токен детерминированно выводится из старого, access JWT — из строки нового токена, поэтому повтор старого токена в окне отдаёт ту же пару, если новый токен ещё не использован. Иначе это reuse: отзывается вся family (`revoked_reason = reuse_detected`), `401 refresh_token_invalid`. Операции над family сериализуются advisory-блокировкой по `family_id`. |
 | Expense XOR «Бесплатный день» | Любая запись расхода снимает отметку в своей транзакции. PUT отметки на дату с расходами даёт 409. Гонку исключают advisory-локи по (user, date). |
 | «Сегодня» | iOS передаёт IANA-пояс в `X-Timezone`, сервер проверяет `date ≤ сегодня` в этом поясе. Даты остаются календарными. |
 | Изоляция пользователей | Все запросы фильтруются по `user_id` из JWT. Чужие объекты получают 404, а не 403. Само знание UUID не даёт доступа. |
